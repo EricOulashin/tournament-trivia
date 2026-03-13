@@ -19,11 +19,18 @@
 */
 
 
-#include <new.h>
-#include <fstream.h>
-#include "e:\doors\intrnode\door.h"
-#include "e:\doors\intrnode\intrnode.h"
-#include "source\doorset.h"
+#include <new>
+#include <fstream>
+#include <thread>
+#include "../intrnode/door.h"
+#include "../intrnode/intrnode.h"
+#ifdef LINUX
+#include <unistd.h>
+#include <spawn.h>
+#include <fcntl.h>
+extern char **environ;
+#endif
+using std::ifstream;
 
 void exitDoor(short);
 void beforeExit();
@@ -35,14 +42,19 @@ void handleOutput(OutputData);
 void fixStatline();
 void invalidatePrompt();
 bool isValidPrompt();
-void displayHelp(char*, char*, char* = NULL, bool=false);
+void displayHelp(char*, char*, char* = nullptr, bool=false);
 bool wordSearch(char*, char*);
-void badNew();
+void badNew_Door();
 
 
-// Input and Output mailslots for communicating with server process
-HANDLE hInputSlot; 
+// Input and Output slots for communicating with server process
+HANDLE hInputSlot;
 HANDLE hOutputSlot;
+
+// Name of the output slot (needed for mq_unlink on cleanup)
+#ifndef _WIN32
+static std::string outputSlotName;
+#endif
 
 // Other misc globals
 bool bCommandMode = false, bPromptOnScreen = false;
@@ -51,81 +63,95 @@ short nPromptLength = 0;
 short nPending = 0;
 
 
-#ifdef OD32
+#if defined(OD32) && defined(_WIN32)
 #pragma argsused
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdLine, int nCmdShow)
 #else
-void main(int argc, char *argv[])
+int main(int argc, char *argv[])
 #endif
 {
-   char szText[160];
-   bool bSuccess;
-   short nTries = 0;
+	char szText[160];
+	bool bSuccess = false;
+	short nTries = 0;
 
-   // Set results of what happens when a call to new fails
-   set_new_handler(badNew);
+	// Set results of what happens when a call to new fails
+	std::set_new_handler(badNew_Door);
 
-   // Call the startup function
-   #ifdef OD32
-   startup(lpszCmdLine);
-   #else
-   startup(argc, argv);
-   #endif
+	// Call the startup function
+	#if defined(OD32) && defined(_WIN32)
+	startup(lpszCmdLine);
+	#else
+	startup(argc, argv);
+	#endif
 
-   Sleep(500);
+	#ifdef LINUX
+	pid_t pid;
+	#endif
 
-   do
-      {
-      // Attempt to start up the door server process.  (No need to check if the door server process is already
-      // running; it does that on its own and shuts down extra copies as needed)
-      bSuccess = CreateProcess(DOOR_SERVER_EXE, NULL, NULL, NULL, false, DETACHED_PROCESS, NULL, NULL, new STARTUPINFO, new PROCESS_INFORMATION);
-      Sleep(1000);
-      nTries++;
-      }  
-   while ( bSuccess == false && nTries < 5 );
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-   // Get a handle on the door server's input mailslot
-   hInputSlot = openSlot(-1);
+	do
+	{
+		// Attempt to start up the door server process.  (No need to check if the door server process is already
+		// running; it does that on its own and shuts down extra copies as needed)
+		#ifdef LINUX
+		bSuccess = (posix_spawn(&pid, DOOR_SERVER_EXE, nullptr, nullptr, argv, environ) == 0);
+		#else
+		bSuccess = CreateProcess(DOOR_SERVER_EXE, nullptr, nullptr, nullptr, false, DETACHED_PROCESS, nullptr, nullptr, new STARTUPINFO, new PROCESS_INFORMATION);
+		#endif
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+		nTries++;
+	}
+	while ( !bSuccess && nTries < 5 );
 
-   // Create this node's output mailslot.
-   hOutputSlot = createSlot( getNode() );
- 
-   // If unable to open input slot, re-try up to 5 times (intial failure seems to happen on WinXP randomly)
-   // If still failure, this indicates the door server is not running and could not be started, so shut down.
-   nTries = 0;
-   while (hInputSlot == INVALID_HANDLE_VALUE ) 
-      {
-      Sleep(500);
-      hInputSlot = openSlot(-1);      
-      if ( ++nTries > 5 )
-         {
-         local("Unable to start door: IPC error");
-         exitDoor(1);
-         }
-      }
+	// Get a handle on the door server's input slot
+	hInputSlot = openSlot(-1);
 
-   // If the output slot for this node is already open, it means the node is already running the door.
-   if ( hOutputSlot == INVALID_HANDLE_VALUE )
-      {
-      local("Unable to start door:  This node is already in use!");
-      pausePrompt();
-      exitDoor(1);
-      }
+	// Create this node's output slot.
+	#ifdef _WIN32
+	hOutputSlot = createSlot( getNode() );
+	#else
+	hOutputSlot = createSlot( getNode(), &outputSlotName );
+	#endif
 
-   // Now that the mailslot handles were successful, call setupExitFunction() to register beforeExit() as the
-   // function called upon exit.
-   setupExitFunction();
-      
-   // Send an input message to the server, to tell it a user is trying to enter the game.  The user's info is
-   // passed as a string in the format below.
-   sprintf(szText, "%d&%c&%d&%s&%s", isSysop(), getGender(), getPlatform(), getAlias(), getRealName());
-   sendInput(szText, IP_ENTER_GAME);
+	// If unable to open input slot, re-try up to 5 times (intial failure seems to happen on WinXP randomly)
+	// If still failure, this indicates the door server is not running and could not be started, so shut down.
+	nTries = 0;
+	while (hInputSlot == INVALID_HANDLE_VALUE )
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		hInputSlot = openSlot(-1);
+		if ( ++nTries > 5 )
+		{
+			local((char*)"Unable to start door: IPC error");
+			exitDoor(1);
+		}
+	}
 
-   // Handle I/O for the user
-   while (1)
-      {
-      performIO();
-      }   
+	// If the output slot for this node is already open, it means the node is already running the door.
+	if ( hOutputSlot == INVALID_HANDLE_VALUE )
+	{
+		local((char*)"Unable to start door:  This node is already in use!");
+		pausePrompt();
+		exitDoor(1);
+	}
+
+	// Now that the slot handles were successful, call setupExitFunction() to register beforeExit() as the
+	// function called upon exit.
+	setupExitFunction();
+
+	// Send an input message to the server, to tell it a user is trying to enter the game.  The user's info is
+	// passed as a string in the format below.
+	sprintf(szText, "%d&%c&%d&%s&%s", isSysop(), getGender(), getPlatform(), getAlias(), getRealName());
+	sendInput(szText, IP_ENTER_GAME);
+
+	// Handle I/O for the user
+	while (1)
+	{
+		performIO();
+	}
+
+	return 0;
 }
 
 void exitDoor(short nType)
@@ -134,8 +160,12 @@ void exitDoor(short nType)
 
    if ( nType != 0 )
       {
+      #ifdef _WIN32
       sprintf(szText, "ObjectDoor Error %d.%d", nType, GetLastError() );
-      local(szText);
+      #else
+      sprintf(szText, "ObjectDoor Error %d", nType);
+      #endif
+      local((char*)szText);
       }
 
    platExit(0);
@@ -146,52 +176,62 @@ void exitDoor(short nType)
 void beforeExit()
 {
    // Tell the server this door node is exiting
-   sendInput(NULL, IP_FORCE_EXIT);
-   sendInput(NULL, IP_FINISHED);
-   Sleep(2000);
+   sendInput(nullptr, IP_FORCE_EXIT);
+   sendInput(nullptr, IP_FINISHED);
+   std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-   // Close the mailslots
-   CloseHandle(hInputSlot); 
+   // Close the slots
+   #ifdef _WIN32
+   CloseHandle(hInputSlot);
    CloseHandle(hOutputSlot);
+   #else
+   mq_close(hInputSlot);
+   mq_close(hOutputSlot);
+   mq_unlink(outputSlotName.c_str());
+   #endif
 }
 
 
-// Sends text over the input mailslot to the server
+// Sends text over the input slot to the server
 void sendInput(char* szText, short nType)
 {
-   InputData idMessage;
-   char szBuffer[250];
-   static bool bAlreadyWarned = false;
-   
-   if ( szText != NULL )
-      {
-      if ( strlen(szText) > 198 )
-         szText[198] = '\0';
-      strcpy(idMessage.szMessage, szText);
-      }
-   else
-      idMessage.szMessage[0] = '\0';
-      
-   idMessage.nFrom = getNode();
-   idMessage.nType = nType;
-   
-   sendToSlot(hInputSlot, idMessage.toString(szBuffer));
+	InputData idMessage;
+	char szBuffer[MQ_MAX_MSG_SIZE + 1];
+	static bool bAlreadyWarned = false;
 
-   nPending++;
-   if ( nPending == 2 )
-      Sleep(200);
-   if ( nPending == 3 || nPending == 4 )
-      Sleep( nPending * 300);
-   if ( nPending >= 5 && !bAlreadyWarned )
-      {
-      local("\r\nA door process has locked up.  Please wait a minute and then re-enter the door.");
-      local("If the door still doesn't run, have your sysop use CTRL-ALT-DELETE to kill the");
-      sprintf(szBuffer, "instance of %s that is running.", DOOR_SERVER_EXE);
-      local(szBuffer);
-      bAlreadyWarned = true;
-      Sleep(3000);
-      exitDoor(0);
-      }
+	if ( szText != nullptr )
+	{
+		if ( strlen(szText) > 198 )
+			szText[198] = '\0';
+		strcpy(idMessage.szMessage, szText);
+	}
+	else
+		idMessage.szMessage[0] = '\0';
+
+	idMessage.nFrom = getNode();
+	idMessage.nType = nType;
+
+	sendToSlot(hInputSlot, idMessage.toString(szBuffer));
+
+	nPending++;
+	if ( nPending == 2 )
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	}
+	if ( nPending == 3 || nPending == 4 )
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(nPending * 300));
+	}
+	if ( nPending >= 5 && !bAlreadyWarned )
+	{
+		local((char*)"\r\nA door process has locked up.  Please wait a minute and then re-enter the door.");
+		local((char*)"If the door still doesn't run, have your sysop use CTRL-ALT-DELETE to kill the");
+		sprintf(szBuffer, "instance of %s that is running.", DOOR_SERVER_EXE);
+		local((char*)szBuffer);
+		bAlreadyWarned = true;
+		std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+		exitDoor(0);
+	}
 }
 
 
@@ -203,23 +243,23 @@ void performIO()
    extern short fhInput1;
 
    // Call getInput() to wait for and handle the player's input; this function also handles grabbing output
-   // from the mailslot and printing it when appropriate
+   // from the slot and printing it when appropriate
    getInput(szString, 190);
 
    // If user typed repeat command
    if ( strcmpi(szString, "!") == 0 || strcmpi(szString, "=r") == 0 )
       {
       strcpy(szString, szOldString);
-      local(szOldString, WHITE);
+      local((char*)szOldString, WHITE);
       }
-         
+
    strcpy(szOldString, szString);
 
    // If user typed Who's Online in Synchronet version
    if ( getPlatform() == PL_XSDK32 && (strcmpi(szString, "#") == 0 || strcmpi(szString, "=#") == 0) )
       {
       listOnlineUsers();
-      local(" ");
+      local((char*)" ");
       bPromptOnScreen = false;
       fixStatline();
       return;
@@ -228,8 +268,8 @@ void performIO()
    // If user wanted to instantly exit
    if ( strcmpi(szString, "=x") == 0 )
       exitDoor(0);
-  
-   // Send the input.  
+
+   // Send the input.
    sendInput(szString);
 
    // Since the previous prompt was answered, attempt to invalidate it.
@@ -249,11 +289,13 @@ void getInput(char* szInput, short nMaxLength)
    // Decrease nMaxLength by one, since this function later doesn't count the null zero
    nMaxLength--;
 
-   if(szInput == NULL || nMaxLength < 1)
+   if(szInput == nullptr || nMaxLength < 1)
+   {
       return;
+   }
 
-   timeout=time(NULL);
-      
+   timeout=time(nullptr);
+
    while (1)
       {
       // Check for lost carrier, time expired, etc.  (Note that in the OpenDoors implementation, these functions
@@ -261,12 +303,12 @@ void getInput(char* szInput, short nMaxLength)
       checkCarrier();
       checkTimeLeft();
       inactiveCheck(timeout);
-      
+
       chKeyPressed = 0;
 
       // While no input on screen, continue to display output for this node.
       while ( nPosition == 0 && chKeyPressed == 0 )
-         {
+      {
          checkCarrier();
          checkTimeLeft();
          inactiveCheck(timeout, 0);
@@ -279,12 +321,16 @@ void getInput(char* szInput, short nMaxLength)
          if ( isValidPrompt() )
             chKeyPressed = inputKey();
          else
-            Sleep(50);
-            
-         // Display all output waiting in mailslot, if any.
+         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+         }
+
+         // Display all output waiting in slot, if any.
          if ( getOutput() )
+         {
             fixStatline();
          }
+      }
 
       // If no key pressed this cycle, try getting the key again.
       if ( chKeyPressed == 0 && isValidPrompt() )
@@ -293,8 +339,8 @@ void getInput(char* szInput, short nMaxLength)
       // If a key was pressed
       if ( chKeyPressed != 0 )
          {
-         timeout=time(NULL);
-         
+         timeout=time(nullptr);
+
          // Fix CR/LF problem, and ignore otherwise invalid characters
          if ( chKeyPressed == 10 || chKeyPressed < 0 )
            continue;
@@ -313,7 +359,7 @@ void getInput(char* szInput, short nMaxLength)
          // it first before displaying the keystroke.
          if ( nPosition == 0 && !bPromptOnScreen )
             fixStatline();
-            
+
          // Backspace key
          if( chKeyPressed == 8 && nPosition > 0 )
             {
@@ -340,51 +386,88 @@ void getInput(char* szInput, short nMaxLength)
             }
          }
       }
-   
+
 }
 
 
-// Reads text from the output mailslot.
+// Reads text from the output slot.
 bool getOutput()
 {
-   DWORD nNextMessageSize, nMessagesLeft, nBytesRead;      
-   bool bMessagesFound = false;
-   char szBuffer[245];
-   OutputData odMessage;
+	DWORD nNextMessageSize, nMessagesLeft, nBytesRead;
+	bool bMessagesFound = false;
+	#ifdef _WIN32
+	char szBuffer[245];
+	#else
+	char szBuffer[MQ_MAX_MSG_SIZE + 1];
+	#endif
+	OutputData odMessage;
 
-   // Loop as long as there's output
-   do
-      {
-      // If unable to check the mailslot, abort door
-      if ( !GetMailslotInfo(hOutputSlot, NULL, &nNextMessageSize, &nMessagesLeft, NULL) ) 
-         exitDoor(2);
+	// Loop as long as there's output
+	do
+	{
+		nNextMessageSize = MAILSLOT_NO_MESSAGE;
+		nMessagesLeft = 0;
 
-      // If messages left, read them
-      if ( nMessagesLeft > 0 && nNextMessageSize != MAILSLOT_NO_MESSAGE )
-         {
-         // Ignore invalid message sizes (see MS Knowledge Base Q192276)
-         // In this case, simply wait for getOutput() to be called again next timeslice.
-         if ( nNextMessageSize < 0 || nNextMessageSize > 500 )
-            return bMessagesFound;
+		#ifdef _WIN32
+		// If unable to check the mailslot, abort door
+		if ( !GetMailslotInfo(hOutputSlot, nullptr, &nNextMessageSize, &nMessagesLeft, nullptr) )
+			exitDoor(2);
 
-         if ( !ReadFile(hOutputSlot, szBuffer, nNextMessageSize, &nBytesRead, NULL) )
-            {
-            local("error reading from slot");
-            return bMessagesFound;
-            }
-         
-         // Convert the text into an OutputData object
-         odMessage = szBuffer;
-            
-         // Handle the output message
-         handleOutput(odMessage);
-         bMessagesFound = true;
-         nPending = 0;
-         }
-      }
-   while ( nNextMessageSize != MAILSLOT_NO_MESSAGE );
+		// If messages left, read them
+		if ( nMessagesLeft > 0 && nNextMessageSize != MAILSLOT_NO_MESSAGE )
+		{
+			// Ignore invalid message sizes (see MS Knowledge Base Q192276)
+			// In this case, simply wait for getOutput() to be called again next timeslice.
+			if ( nNextMessageSize < 0 || nNextMessageSize > 500 )
+				return bMessagesFound;
 
-   return bMessagesFound;
+			if ( !ReadFile(hOutputSlot, szBuffer, nNextMessageSize, &nBytesRead, nullptr) )
+			{
+				local((char*)"error reading from slot");
+				return bMessagesFound;
+			}
+
+			// Convert the text into an OutputData object
+			odMessage = szBuffer;
+
+			// Handle the output message
+			handleOutput(odMessage);
+			bMessagesFound = true;
+			nPending = 0;
+		}
+		#else
+		// Linux: Use POSIX message queues
+		{
+			struct mq_attr attr;
+			if (mq_getattr(hOutputSlot, &attr) == -1)
+				exitDoor(2);
+
+			if (attr.mq_curmsgs > 0)
+			{
+				nNextMessageSize = attr.mq_msgsize;
+				nMessagesLeft = attr.mq_curmsgs;
+
+				ssize_t bytesRead = mq_receive(hOutputSlot, szBuffer, MQ_MAX_MSG_SIZE, nullptr);
+				if (bytesRead <= 0)
+				{
+					return bMessagesFound;
+				}
+				szBuffer[bytesRead] = '\0';
+
+				// Convert the text into an OutputData object
+				odMessage = szBuffer;
+
+				// Handle the output message
+				handleOutput(odMessage);
+				bMessagesFound = true;
+				nPending = 0;
+			}
+		}
+		#endif
+	}
+	while ( nNextMessageSize != MAILSLOT_NO_MESSAGE );
+
+	return bMessagesFound;
 }
 
 
@@ -405,7 +488,7 @@ void handleOutput(OutputData odMessage)
       {
       // Standard text output
       case OP_NORMAL:
-         local(odMessage.szMessage, odMessage.nColor, 0);
+         local((char*)odMessage.szMessage, odMessage.nColor, 0);
          break;
 
       // New prompt for a hotkey
@@ -458,9 +541,9 @@ void handleOutput(OutputData odMessage)
       // Display an entry in an HLP file
       case OP_DISPLAY_HLP:
          szFile = strtok(odMessage.szMessage, "&");
-         szTopic = strtok(NULL, "&");
-         szError = strtok(NULL, "&");
-         szTemp = strtok(NULL, "");
+         szTopic = strtok(nullptr, "&");
+         szError = strtok(nullptr, "&");
+         szTemp = strtok(nullptr, "");
          if ( szTemp[0] == 'y' )
             bPartialMatch = true;
          else
@@ -485,7 +568,7 @@ void handleOutput(OutputData odMessage)
 void fixStatline()
 {
    char szText[80], szTemp[40];
-   
+
    // If a prompt is already on screen, remove it
    if ( bPromptOnScreen )
       {
@@ -496,7 +579,7 @@ void fixStatline()
    // If there's no prompt to be displayed, return.
    if ( !isValidPrompt() )
       return;
-      
+
    bPromptOnScreen = true;
 
    // If current prompt is a blank one, this indicates use a statline prompt.
@@ -504,7 +587,7 @@ void fixStatline()
    if ( strlen(odPromptInfo.szMessage) == 0 )
       {
       nPromptLength = 2;
-      
+
       sprintf(szText, STAT_1, odPromptInfo.nHp);
       if ( odPromptInfo.nSp  > -1 )
          {
@@ -517,7 +600,7 @@ void fixStatline()
          strcat(szText, szTemp);
          }
       strcat(szText, "]");
-      local(szText, odPromptInfo.nHpColor, 0);
+      local((char*)szText, odPromptInfo.nHpColor, 0);
       nPromptLength += strlen(szText);
 
       if ( odPromptInfo.nEnemyPercent > -1 )
@@ -527,7 +610,7 @@ void fixStatline()
          nPromptLength += strlen(szText);
          }
 
-      local(": ", LWHITE, 0);
+      local((char*)": ", LWHITE, 0);
       }
 
    // Otherwise, prompt is an actual prompt, so display it.
@@ -537,7 +620,7 @@ void fixStatline()
          odPromptInfo.szMessage[69] = '\0';
       local(odPromptInfo.szMessage, odPromptInfo.nColor, 0);
       nPromptLength = strlen(odPromptInfo.szMessage);
-      }      
+      }
 }
 
 
@@ -581,7 +664,7 @@ void displayHelp(char* szFileName, char* szTopic, char* szError, bool bPartialMa
    char szLine[90], cKey;
    time_t timeout;
 
-   if ( szFileName == NULL || szTopic == NULL || strlen(szTopic) < 1 )
+   if ( szFileName == nullptr || szTopic == nullptr || strlen(szTopic) < 1 )
       return;
 
    ifsFile.open(szFileName);
@@ -589,6 +672,13 @@ void displayHelp(char* szFileName, char* szTopic, char* szError, bool bPartialMa
    while ( ifsFile )
       {
       ifsFile.getline(szLine, 90);
+
+      // Strip trailing \r from Windows CRLF line endings
+      {
+         short len = strlen(szLine);
+         if ( len > 0 && szLine[len-1] == '\r' )
+            szLine[len-1] = '\0';
+      }
 
       // If partial-matches are enabled:  If we don't find a full-match on first pass
       // of the hlp file, we go through it again looking for partial-matches.
@@ -598,10 +688,10 @@ void displayHelp(char* szFileName, char* szTopic, char* szError, bool bPartialMa
          ifsFile.seekg(0);
          bSecondPass = true;
          }
-      
-      if ( szLine == NULL )
+
+      if ( szLine == nullptr )
          continue;
-         
+
       switch (szLine[0])
          {
          case ';':
@@ -632,16 +722,16 @@ void displayHelp(char* szFileName, char* szTopic, char* szError, bool bPartialMa
          case ']':
             if ( strlen(szLine) > 1 && bFound )
                local(&szLine[1], nColor, 0);
-            break;            
+            break;
          default:
             if ( bFound )
                {
                local(szLine, nColor);
- 
+
                if ( ++nLineCount > 20 && !bNonstop)
                   {
-                  local("(C)ontinue, (N)onstop, (Q)uit: ", WHITE, 0);
-                  timeout = time(NULL);
+                  local((char*)"(C)ontinue, (N)onstop, (Q)uit: ", WHITE, 0);
+                  timeout = time(nullptr);
                   cKey = 0;
                   while ( cKey == 0 )
                      {
@@ -649,16 +739,16 @@ void displayHelp(char* szFileName, char* szTopic, char* szError, bool bPartialMa
                      checkCarrier();
                      checkTimeLeft();
                      inactiveCheck(timeout);
-                     Sleep(50);
+                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
                      }
 
-                  local(" ");
+                  local((char*)" ");
 
                   if ( cKey == 'n' || cKey == 'N' )
                      bNonstop = true;
 
                   if ( cKey == 'q' || cKey == 'Q' || cKey == 'x' || cKey == 'X' || cKey == 's' || cKey == 'S' )
-                     return;                        
+                     return;
 
                   nLineCount = 0;
                   }
@@ -672,39 +762,9 @@ void displayHelp(char* szFileName, char* szTopic, char* szError, bool bPartialMa
 }
 
 
-// Does "intelligent search" ON first parameter, FOR second parameter 
-bool wordSearch(char* szString1, char* szString2)
-{
-   char szToSearch[162];
-   char szToFind[162];
-
-   if ( strlen(szString1) > 160 )
-      szString1[160] = '\0';
-   if ( strlen(szString2) > 160 )
-      szString2[160] = '\0';
-   
-   sprintf(szToSearch, " %s", szString1);
-   sprintf(szToFind, " %s", szString2);
-
-   strlwr(szToSearch);
-   strlwr(szToFind);
-   
-   if ( strstr(szToSearch, szToFind) != NULL )
-      return true;
-   else
-      return false;
-}
-
-
 // Called when an attempt to use C++'s new fails
-void badNew()
+void badNew_Door()
 {
-   local("Out of memory.");
+   local((char*)"Out of memory.");
    exit(0);
 }
-
-
-
-
-
-

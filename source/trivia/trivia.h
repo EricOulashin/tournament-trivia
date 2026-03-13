@@ -1,8 +1,9 @@
 #ifndef TRIVIA_H_DEF
 #define TRIVIA_H_DEF
 
-#include <time.h>
-#include "source\doorset.h"
+//#include <time.h>
+#include <ctime>
+#include "doorset.h"
 
 #define MAX_TRIVIA_FILES 10
 #define CLUE_CHAR        '.'

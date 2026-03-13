@@ -8,12 +8,20 @@
 // Door information:  Name, version, compile date, input mailslot, output 
 //   mailslot, server exe name
 #define DOOR_NAME       "Tournament Trivia"
-#define DOOR_COPYRIGHT  "(c) 2003 Evan Elias"
+#define DOOR_COPYRIGHT  (char*)"(c) 2003 Evan Elias"
 #define DOOR_VERSION    "1.0"
 #define DOOR_COMPILE    "07/04/03"
 #define DOOR_INP_SLOT   "trvinput"
 #define DOOR_OUT_SLOT   "trvout"
+#ifdef _WIN32
 #define DOOR_SERVER_EXE "trivsrv.exe"
+#else
+#ifdef LINUX
+#define DOOR_SERVER_EXE "trivsrv"
+#else
+#define DOOR_SERVER_EXE "trivsrv.exe"
+#endif
+#endif
 
 // Round timer
 #define ROUND_TIME      1000

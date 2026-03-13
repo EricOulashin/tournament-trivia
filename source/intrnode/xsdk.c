@@ -1,36 +1,28 @@
-/* XSDK.C */
+/* Synchronet External Program Software Development Kit	*/
 
-/****************************************************************************/
-/*			Synchronet External Program Software Development Kit			*/
-/*							1995 Digital Dynamics							*/
-/****************************************************************************/
-
-/****************************************************************************/
-/* This source code file is public domain and may be modified, compiled 	*/
-/* distributed, or used in any way, in part or whole for any purposes		*/
-/* without the consent or notification of Digital Dynamics. 				*/
-/*																			*/
-/* We only request that you display to the user, at some point, in your 	*/
-/* program the character "XSDK" and the version number.                     */
-/* example: bprintf("XSDK v%s",xsdk_ver);                                   */
-/****************************************************************************/
-
-/****************************************************************************/
-/* The source code for two external programs developed by Digital Dynamics	*/
-/* using XSDK (Synchronet Blackjack [SBJ] and Synchronet BBS List [SBL])	*/
-/* are available to the public domain as examples of how to implement the	*/
-/* functions and variables included in this software development kit.		*/
-/****************************************************************************/
-
-/****************************************************/
-/* For use with Borland/Turbo C and C++ compilers.	*/
-/* Tabstop set to 4.								*/
-/****************************************************/
+/****************************************************************************
+ * @format.tab-size 4		(Plain Text/Source Code File Header)			*
+ * @format.use-tabs true	(see http://www.synchro.net/ptsc_hdr.html)		*
+ *																			*
+ * Copyright Rob Swindell - http://www.synchro.net/copyright.html			*
+ *																			*
+ * This library is free software; you can redistribute it and/or			*
+ * modify it under the terms of the GNU Lesser General Public License		*
+ * as published by the Free Software Foundation; either version 2			*
+ * of the License, or (at your option) any later version.					*
+ * See the GNU Lesser General Public License for more details: lgpl.txt or	*
+ * http://www.fsf.org/copyleft/lesser.html									*
+ *																			*
+ * For Synchronet coding style and modification guidelines, see				*
+ * http://www.synchro.net/source.html										*
+ *																			*
+ * Note: If this box doesn't appear square, then you need to fix your tabs.	*
+ ****************************************************************************/
 
 /***************************** Revision History *****************************\
 
 			Initial version for use with Synchronet v1a r6
-	1.0á	
+	1.0á
 			Added bgotoxy() macro
 			Added mnehigh and mnelow vars for control of the mnemonic colors
 			Added sys_nodes and node_num variables to xtrn_sdk.c
@@ -192,104 +184,48 @@
 			Added support for telnet nodes (connection=0xffff)
 	3.00
 			Fixed problem with clear screen (form feed) in node messages.
-			checkline() now exits when the remote user disconnects on 32-bit 
+			checkline() now exits when the remote user disconnects on 32-bit
 				programs. Use atexit() to add cleanup code.
 	3.01
+			Eliminated warnings in ctrl_a() when compiled with VC++ 6.0.
+			Added Linux/GCC support (xsdkwrap.c, xsdkwrap.h, and xsdkinet.h)
+	3.10
+			Added COMPILER_DESC and PLATFORM_DESC macros to xsdkwrap.h
+			Added support for no local console (XSDK_MODE_NOCONSOLE)
+				- This is now the default mode when building 32-bit programs
+			Eliminated use of ungetch() in favor of ungetkey() - more secure
+	3.11
+			Added support for stdio (non-socket) communications in 32-bit builds.
+	3.20
 
 \****************************************************************************/
 
-#ifdef _WIN32
-#include <windows.h>	// Sleep()
-#include <process.h>	// _beginthread()
-#include <winsock.h>	// socket stuff
+#include "xsdk.h"
+#if defined USE_XPDEV
+	#include "conwrap.h"
+	#include "threadwrap.h"
+#endif
+
+#ifdef _WINSOCKAPI_
 WSADATA WSAData;		// WinSock data
 #endif
 
-#include "xsdk.h"
-
-
-char *xsdk_ver="3.01"
-#ifdef _WIN32
-	"/Win32"
-#endif
-	;
-
-//--> Additions
-extern short nNoLocalWindow;
-
-#ifdef __TURBOC__
-extern long timezone=0L;
-extern daylight=0;
-#endif
-
-#ifdef __SC__
-#include <disp.h>
-short wherey(void);
-void clrscr(void);
-#endif  
-
-#ifdef _MSC_VER	  /* Microsoft C */
-
-#define sopen(f,o,s,p)	   _sopen(f,o,s,p)
-#define close(f)		   _close(f)
-#define SH_DENYNO		   _SH_DENYNO
-#define SH_DENYRW		   _SH_DENYRW
-
-#include <sys/locking.h>
-
-int lock(int file, long offset, int size) 
-{
-	int	i;
-	long	pos;
-   
-	pos=tell(file);
-	if(offset!=pos)
-		lseek(file, offset, SEEK_SET);
-	i=locking(file,LK_NBLCK,size);
-	if(offset!=pos)
-		lseek(file, pos, SEEK_SET);
-	return(i);
-}
-
-int unlock(int file, long offset, int size)
-{
-	int	i;
-	long	pos;
-   
-	pos=tell(file);
-	if(offset!=pos)
-		lseek(file, offset, SEEK_SET);
-	i=locking(file,LK_UNLCK,size);
-	if(offset!=pos)
-		lseek(file, pos, SEEK_SET);
-	return(i);
-}
-
-void clrscr(void)
-{
-}
-
-#endif /* _MSC_VER */
-
-#ifndef __16BIT__	/* Sockets */
-
-SOCKET			client_socket=INVALID_SOCKET;
-
-#endif
+char *xsdk_ver="3.21";
+ulong xsdk_mode=XSDK_MODE_NOCONSOLE;
 
 /****************************************************************************/
 /* This allows users to abort the listing of text by using Ctrl-C           */
 /****************************************************************************/
 int cbreakh(void)	/* ctrl-break handler */
 {
-	//aborted=1;
+	aborted=1;
 	return(1);		/* 1 to continue, 0 to abort */
 }
 
 /****************************************************************************/
 /* Performs printf() using bbs bputs function								*/
 /****************************************************************************/
-int bprintf(char *fmt, ...)
+int bprintf(const char *fmt, ...)
 {
 	va_list argptr;
 	char sbuf[1024];
@@ -305,7 +241,7 @@ int bprintf(char *fmt, ...)
 /****************************************************************************/
 /* Performs printf() using bbs rputs function								*/
 /****************************************************************************/
-int rprintf(char *fmt, ...)
+int rprintf(const char *fmt, ...)
 {
 	va_list argptr;
 	char sbuf[1024];
@@ -321,7 +257,7 @@ int rprintf(char *fmt, ...)
 /****************************************************************************/
 /* Outputs a NULL terminated string locally and remotely (if applicable) 	*/
 /****************************************************************************/
-void bputs(char *str)
+void bputs(const char *str)
 {
 	ulong l=0;
 
@@ -340,7 +276,7 @@ void bputs(char *str)
 /* Does not process ctrl-a codes (raw output)								*/
 /* Max length of str is 64 kbytes											*/
 /****************************************************************************/
-void rputs(char *str)
+void rputs(const char *str)
 {
 	ulong l=0;
 
@@ -352,12 +288,12 @@ void rputs(char *str)
 /* Returns the number of characters in 'str' not counting ctrl-ax codes		*/
 /* or the null terminator													*/
 /****************************************************************************/
-int bstrlen(uchar *str)
+int bstrlen(const char *str)
 {
 	int i=0;
 
 	while(*str) {
-		if(*str<SP) {	/* ctrl char */
+		if(*str >= 0 && *str<' ') {	/* ctrl char */
 			if(*str==1) /* ctrl-A */
 				str++;
 			else if(*str!=CR && *str!=LF && *str!=FF)
@@ -374,13 +310,13 @@ int bstrlen(uchar *str)
 /* Outputs the string 'str' centered for an 80 column display               */
 /* Automatically appends "\r\n" to output                                   */
 /****************************************************************************/
-void center(char *str)
+void center(const char *str)
 {
 	 int i,j;
 
 	j=bstrlen(str);
 	for(i=0;i<(80-j)/2;i++)
-		outchar(SP);
+		outchar(' ');
 	bputs(str);
 }
 
@@ -389,19 +325,21 @@ void center(char *str)
 char	outbuf[5000];
 ulong	outbufbot=0;
 ulong	outbuftop=0;
-HANDLE	output_event;
+sem_t	output_sem;
 
-#pragma argsused
 void output_thread(void* arg)
 {
 	int		i,len;
 	char	str[256];
 
+	sem_init(&output_sem,0,0);
+
 	while(client_socket!=INVALID_SOCKET) {
 		if(outbufbot==outbuftop) {
-			ResetEvent(output_event);
-			WaitForSingleObject(output_event,10000);
-			continue; }
+			sem_init(&output_sem,0,0);
+			sem_wait(&output_sem);
+			continue;
+		}
 
 		if(outbuftop>outbufbot)
 			len=outbuftop-outbufbot;
@@ -410,8 +348,12 @@ void output_thread(void* arg)
 		i=send(client_socket,outbuf+outbufbot,len,0);
 		if(i!=len) {
 			sprintf(str,"!XSDK Error %d (%d) sending on socket %d\n"
-				,i,GetLastError(),client_socket);
+				,i,ERROR_VALUE,client_socket);
+#ifdef _WIN32
 			OutputDebugString(str);
+#else
+			fprintf(stderr,"%s",str);
+#endif
 		}
 		outbufbot+=len;
 		if(outbufbot>=sizeof(outbuf))
@@ -426,61 +368,79 @@ void output_thread(void* arg)
 /****************************************************************************/
 void outchar(char ch)
 {
+	static char lastch;
+
+	/* Fix for unix-formatted text, expand sole LF to CRLF */
+	if(ch=='\n' && lastch!='\r')
+		outchar('\r');
+
 #ifndef __16BIT__
-	ulong	top=outbuftop+1;
+	if(client_socket!=INVALID_SOCKET) {
+		ulong	top=outbuftop+1;
 
-	if(top==sizeof(outbuf))
-		top=0;
-	if(top!=outbufbot) {
-		outbuf[outbuftop++]=ch;
-		if(outbuftop==sizeof(outbuf))
-			outbuftop=0;
-		SetEvent(output_event);
+		if(top==sizeof(outbuf))
+			top=0;
+		if(top!=outbufbot) {
+			outbuf[outbuftop++]=ch;
+			if(outbuftop==sizeof(outbuf))
+				outbuftop=0;
+			sem_post(&output_sem);
+		}
 	}
-
 #endif
 
-	if ( nNoLocalWindow == 0 )
+	if(con_fp!=NULL)
 		write(fileno(con_fp),&ch,1);
 
 	if(ch==LF) {
 		lncntr++;
 		lbuflen=0;
-		tos=0; 
+		tos=0;
 	}
 	else if(ch==FF) {
 		if(lncntr>1) {
 			lncntr=0;
-			//CRLF;
-			//pause(); 
+			CRLF;
+			bpause();
 		}
 		lncntr=0;
 		lbuflen=0;
-		tos=1; 
+		tos=1;
 	}
 	else if(ch==BS) {
 		if(lbuflen)
-			lbuflen--; 
+			lbuflen--;
 	}
 	else {
 		if(!lbuflen)
 			latr=curatr;
 		if(lbuflen>=LINE_BUFSIZE) lbuflen=0;
-		lbuf[lbuflen++]=ch; 
+		lbuf[lbuflen++]=ch;
 	}
 	if(lncntr==user_rows-1) {
 		lncntr=0;
-		//pause(); 
+		bpause();
 	}
+	lastch=ch;
+}
+
+void flushoutput(void)
+{
+#ifndef __16BIT__
+	int i;
+	for(i=0;i<10000 && outbuftop!=outbufbot;i++)
+		mswait(1);
+#endif
 }
 
 /****************************************************************************/
 /* Prints PAUSE message and waits for a key stoke							*/
 /****************************************************************************/
-void pause(void)
+void bpause(void)
 {
 	char	ch;
-	uchar	tempattrs=curatr,*msg="\1_\1r\1h[Hit a key] ";
+	uchar	tempattrs=curatr;
+	const char*	msg="\1_\1r\1h[Hit a key] ";
 	int		i,j;
 
 	lncntr=0;
@@ -490,8 +450,8 @@ void pause(void)
 	for(i=0;i<j;i++)
 		bputs("\b \b");
 	attr(tempattrs);
-	/*if(ch=='N' || ch=='Q')
-		aborted=1;*/
+	if(ch=='N' || ch=='Q')
+		aborted=1;
 }
 
 /****************************************************************************/
@@ -499,7 +459,7 @@ void pause(void)
 /* Returns 1 for Y or 0 for N												*/
 /* Called from quite a few places											*/
 /****************************************************************************/
-char yesno(char *str)
+char yesno(const char *str)
 {
 	char ch;
 
@@ -511,8 +471,8 @@ char yesno(char *str)
 			return(1); }
 		if(ch=='N' || aborted) {
 			bputs("No\r\n");
-			return(0); 
-		} 
+			return(0);
+		}
 	}
 }
 
@@ -521,7 +481,7 @@ char yesno(char *str)
 /* Returns 1 for N or 0 for Y												*/
 /* Called from quite a few places											*/
 /****************************************************************************/
-char noyes(char *str)
+char noyes(const char *str)
 {
 	char ch;
 
@@ -533,8 +493,8 @@ char noyes(char *str)
 			return(1); }
 		if(ch=='Y') {
 			bputs("Yes\r\n");
-			return(0); 
-		} 
+			return(0);
+		}
 	}
 }
 
@@ -544,7 +504,7 @@ char noyes(char *str)
 /* If the user doesn't have ANSI, it puts the character following the tilde */
 /* in parenthesis.															*/
 /****************************************************************************/
-void mnemonics(char *str)
+void mnemonics(const char *str)
 {
 	long l;
 
@@ -560,12 +520,47 @@ void mnemonics(char *str)
 			l++;
 			if(!(user_misc&ANSI))
 				outchar(')');
-			attr(mnelow); 
+			attr(mnelow);
 		}
 		else
-			outchar(str[l++]); 
+			outchar(str[l++]);
 	}
 	attr(LIGHTGRAY);
+}
+
+#ifdef _WIN32
+int stdin_kbhit(void)
+{
+	int ch;
+
+	ch=getc(stdin);
+	if(ch==EOF)
+		return(0);
+	ungetc(ch,stdin);
+	return(ch);
+}
+int stdin_getch(void)
+{
+	return(getc(stdin));
+}
+#else
+	#define stdin_kbhit kbhit
+	#define stdin_getch getch
+#endif
+
+int keyhit()
+{
+#ifndef __16BIT__
+	ulong cnt=0;
+	if(client_socket!=INVALID_SOCKET) {
+		if(ioctlsocket(client_socket,FIONREAD,&cnt))
+	    	return(0);
+	    return(cnt);
+	}
+	return(0);
+#else
+	return(stdin_kbhit());
+#endif
 }
 
 /****************************************************************************/
@@ -574,12 +569,13 @@ void mnemonics(char *str)
 /****************************************************************************/
 char inkey(long mode)
 {
-	static in_ctrl_p;
+	static int in_ctrl_p;
+	static int ansi_len;
 	uchar ch=0,hour,min,sec;
 	long tleft;
 	int i=0;
 	time_t now;
-   
+
 #ifndef __16BIT__
 	char	str[256];
 	ulong	cnt=0;
@@ -588,12 +584,16 @@ char inkey(long mode)
 		i=ioctlsocket(client_socket,FIONREAD,&cnt);
 		if(i) {
 			sprintf(str,"!XSDK Error %d (%d) checking readcnt on socket %d\n"
-				,i,GetLastError(),client_socket);
+				,i,ERROR_VALUE,client_socket);
+#ifdef _WIN32
 			OutputDebugString(str);
+#else
+			fprintf(stderr,"%s",str);
+#endif
 		}
 	}
 
-	if(i==0 && cnt) 
+	if(i==0 && cnt)
 		recv(client_socket,&ch,1,0);
 	else
 #endif
@@ -602,31 +602,72 @@ char inkey(long mode)
 		ch=keybuf[keybufbot++];
 		if(keybufbot==KEY_BUFSIZE)
 			keybufbot=0; }
-	else if(kbhit()) {
-		i=getch();
+	else if(!(xsdk_mode&XSDK_MODE_NOCONSOLE) && stdin_kbhit()) {
+		i=stdin_getch();
+#ifdef __unix__
+		if(i==LF) i=CR;	/* Enter key returns Ctrl-J on Unix! (ohmygod) */
+#endif
 		if(i==0 || i==0xE0) {			/* Local Alt or Function key hit */
-			i=getch();
+			i=stdin_getch();
 			switch(i) {
 				case 0x47:	/* Home - Same as Ctrl-B */
-					return(2);	/* ctrl-b beginning of line */
+					return TERM_KEY_HOME;	/* ctrl-b beginning of line */
 				case 0x4b:		/* Left Arrow - same as ctrl-] */
-					return(0x1d);
+					return TERM_KEY_LEFT;
 				case 0x4d:		/* Right Arrow - same as ctrl-f */
-					return(6);
+					return TERM_KEY_RIGHT;
 				case 0x48:		/* Up arrow - same as ctrl-^ */
-					return(0x1e);
+					return TERM_KEY_UP;
 				case 0x50:		/* Down arrow - same as CR */
-					return(CR);
+					return TERM_KEY_DOWN;
 				case 0x4f:	  /* End	  - same as Ctrl-E */
-					return(5);  /* ctrl-e - end of line */
+					return TERM_KEY_END;
 				case 0x52:	/* Insert */
-					return(0x1f);	/* ctrl-minus - insert mode */
+					return TERM_KEY_INSERT;	/* ctrl-minus - insert mode */
 				case 0x53:	/* Delete */
 					return(0x7f);   /* ctrl-bkspc - del cur char */
 				}
-			return(0); } 
+			return(0); }
 		ch=i;
 	}
+
+	if(ch == ESC) {
+		ansi_len = !ansi_len;
+	}
+	else if(ansi_len == 1) {
+		if(ch == '[')
+			ansi_len++;
+		else
+			ansi_len = 0;
+	}
+	else if(ansi_len == 2) {
+		ansi_len =0 ;
+		switch(ch) {
+			case 'A':
+				return TERM_KEY_UP;
+			case 'B':
+				return TERM_KEY_DOWN;
+			case 'C':
+				return TERM_KEY_RIGHT;
+			case 'D':
+				return TERM_KEY_LEFT;
+			case 'H':
+				return TERM_KEY_HOME;
+			case 'V':
+				return TERM_KEY_PAGEUP;
+			case 'U':
+				return TERM_KEY_PAGEDN;
+			case 'F':
+			case 'K':
+				return TERM_KEY_END;
+			case '@':
+				return TERM_KEY_INSERT;
+			default:
+				return 0;
+		}
+	}
+	if(ansi_len)
+		return 0;
 
 	if(ch==0x10 || ch==0x1e) {	/* Ctrl-P or Ctrl-^ */
 		if(in_ctrl_p || !ctrl_dir[0])	/* keep from being recursive */
@@ -634,7 +675,7 @@ char inkey(long mode)
 		in_ctrl_p=1;
 		SAVELINE;
 		CRLF;
-      nodemsg();
+		nodemsg();
 		CRLF;
 		RESTORELINE;
 		lncntr=0;
@@ -655,6 +696,8 @@ char inkey(long mode)
 		sec=i-((min+(hour*60))*60);
 		bprintf("\r\nTime Used : %02u:%02u:%02u",hour,min,sec);
 		tleft=timeleft-(now-starttime);
+		if(tleft<0)
+			tleft=0;
 		hour=(tleft/60)/60;
 		min=(tleft/60)-(hour*60);
 		sec=tleft-((min+(hour*60))*60);
@@ -674,16 +717,18 @@ char inkey(long mode)
 		lncntr=0;
 		return(0); }
 
+#ifndef __16BIT__
+	if(ch==LF)
+		ch=0;		/* Ignore LF of Telnet CR/LF sequence */
+#endif
+
 	if(ch==3)
-		aborted=0;
+		aborted=1;
 	else if(aborted)
 		ch=3;
 
-   //--> Change made!  was mswait(1)
 	if(!ch && (!(mode&K_GETSTR) || mode&K_LOWPRIO|| node_misc&NM_LOWPRIO))
-		Sleep(50);
-	if (ch==LF)
-   	return 0;
+		mswait(1);
 	return(ch);
 }
 
@@ -697,7 +742,7 @@ char getkey(long mode)
 	char	ch,warn=0;
 	long	tleft;
 	time_t	timeout,now;
-   
+
 	aborted=lncntr=0;
 	timeout=time(NULL);
 	do {
@@ -712,24 +757,27 @@ char getkey(long mode)
 			if(ch==LF) continue;
 			if(mode&K_UPPER)
 				return(toupper(ch));
-			return(ch); 
+			return(ch);
 		}
 		checktimeleft();
 
-		tleft=timeleft-(now-starttime);
-		if((tleft/60)<(5-timeleft_warn)) {	/* Running out of time warning */
-			timeleft_warn=5-(tleft/60);
-			SAVELINE;
-			bprintf("\1n\1h\r\n\7\r\nYou only have \1r\1i%u\1n\1h minute%s "
-				"left.\r\n\r\n"
-				,((ushort)tleft/60)+1,(tleft/60) ? "s" : "");
-			RESTORELINE; 
+		if(!strchr(user_exempt,'T')) {
+			tleft=timeleft-(now-starttime);
+			if(tleft<0)
+				tleft=0;
+			if((tleft/60)<(5-timeleft_warn)) {	/* Running out of time warning */
+				timeleft_warn=5-(tleft/60);
+				SAVELINE;
+				bprintf("\1n\1h\r\n\7\r\nYou only have \1r\1i%u\1n\1h minute%s "
+					"left.\r\n\r\n"
+					,((ushort)tleft/60)+1,(tleft/60) ? "s" : "");
+				RESTORELINE;
+			}
 		}
 
 		if(now-timeout>=(time_t)sec_warn && !warn)		/* Inactivity warning */
 			for(warn=0;warn<5;warn++)
 				outchar(7);
-      
 	} while(now-timeout<(time_t)sec_timeout);
 
 	bputs("\r\nInactive too long.\r\n");
@@ -740,10 +788,10 @@ char getkey(long mode)
 /****************************************************************************/
 /* If remote user, checks DCD to see if user has hung up or not.			*/
 /****************************************************************************/
-void checkline(void)
+int isconnected(void)
 {
 #ifdef __16BIT__
-if(com_port && !((*msr)&DCD)) exit(0);
+	if(com_port && !((*msr)&DCD)) return(0);
 #else
 	char	str[256];
 	char	ch;
@@ -751,20 +799,37 @@ if(com_port && !((*msr)&DCD)) exit(0);
 	fd_set	socket_set;
 	struct timeval timeout;
 
-	FD_ZERO(&socket_set);
-	FD_SET(client_socket,&socket_set);
-	timeout.tv_sec=0;
-	timeout.tv_usec=100;
+	if(client_socket!=INVALID_SOCKET) {
+		FD_ZERO(&socket_set);
+		FD_SET(client_socket,&socket_set);
+		timeout.tv_sec=0;
+		timeout.tv_usec=100;
 
-	if((i=select(0,&socket_set,NULL,NULL,&timeout))>0) {
-		if((i=recv(client_socket,&ch,1,MSG_PEEK))!=1) {
-			sprintf(str,"!XSDK Error %d (%d) checking state of socket %d\n"
-				,i,GetLastError(),client_socket);
-			OutputDebugString(str);
-			exit(0);
+		if((i=select(client_socket+1,&socket_set,NULL,NULL,&timeout))>0) {
+			if((i=recv(client_socket,&ch,1,MSG_PEEK))!=1) {
+				sprintf(str,"!XSDK Error %d (%d) checking state of socket %d\n"
+					,i,ERROR_VALUE,client_socket);
+	#ifdef _WIN32
+				OutputDebugString(str);
+	#else
+				fprintf(stderr,"%s",str);
+				fflush(stderr);
+	#endif
+				return(0);
+			}
 		}
 	}
 #endif
+	return(1);
+}
+
+/****************************************************************************/
+/* If remote user, checks DCD to see if user has hung up or not.			*/
+/****************************************************************************/
+void checkline(void)
+{
+	if(!isconnected())
+		exit(0);
 }
 
 /****************************************************************************/
@@ -775,11 +840,13 @@ if(com_port && !((*msr)&DCD)) exit(0);
 /* returned with the high bit set. If the return of this function has the	*/
 /* high bit set (&0x8000), just flip the bit (^0x8000) to get the number.	*/
 /****************************************************************************/
-int getkeys(char *str,int max)
+int getkeys(const char *instr,int max)
 {
-	uchar ch,n=0;
-	int i=0;
+	char	str[256];
+	uchar	ch,n=0;
+	int		i=0;
 
+	sprintf(str,"%.*s",(int)sizeof(str)-1,instr);
 	strupr(str);
 	while(!aborted) {
 		ch=getkey(K_UPPER);
@@ -789,19 +856,19 @@ int getkeys(char *str,int max)
 			outchar(ch);
 			attr(LIGHTGRAY);
 			CRLF;
-			return(ch); 
+			return(ch);
 		}
 		if(ch==CR && max) {             /* return 0 if no number */
 			attr(LIGHTGRAY);
 			CRLF;
 			if(n)
 				return(i|0x8000);		/* return number plus high bit */
-			return(0); 
+			return(0);
 		}
 		if(ch==BS && n) {
 			bputs("\b \b");
 			i/=10;
-			n--; 
+			n--;
 		}
 		else if(max && isdigit(ch) && (i*10)+(ch&0xf)<=max && (ch!='0' || n)) {
 			i*=10;
@@ -811,9 +878,9 @@ int getkeys(char *str,int max)
 			if(i*10>max) {
 				attr(LIGHTGRAY);
 				CRLF;
-				return(i|0x8000); 
-			} 
-		}	 
+				return(i|0x8000);
+			}
+		}
 	}
 	return(0);
 }
@@ -870,23 +937,22 @@ int getnum(int max)
 /* a word, ^X backspaces a line, ^Gs, BSs, TABs are processed, LFs ignored. */
 /* ^N non-destructive BS, ^V center line. Valid keys are echoed.			*/
 /****************************************************************************/
-#ifndef LIMITED_XSDK //--> change
 int getstr(char *strout, size_t maxlen, long mode)
 {
 	size_t i,l,x,z;	/* i=current position, l=length, j=printed chars */
 					/* x&z=misc */
-	uchar ch,str1[256],str2[256],ins=0,atr;
+	char ch,str1[256],str2[256],ins=0,atr;
 
 	if(mode&K_LINE && user_misc&ANSI) {
 		attr(LIGHTGRAY|HIGH|(BLUE<<4));  /* white on blue */
 		for(i=0;i<maxlen;i++)
-			outchar(SP);
-		bprintf("\x1b[%dD",maxlen); 
+			outchar(' ');
+		bprintf("\x1b[%dD",maxlen);
 	}
 	i=l=0;	/* i=total number of chars, j=number of printable chars */
 	if(wordwrap[0]) {
 		strcpy(str1,wordwrap);
-		wordwrap[0]=0; 
+		wordwrap[0]=0;
 	}
 	else str1[0]=0;
 	if(mode&K_EDIT)
@@ -907,16 +973,16 @@ int getstr(char *strout, size_t maxlen, long mode)
 		if(isprint(ch) || ch==0x7f) {
 			for(i=0;i<l;i++)
 				bputs("\b \b");
-			i=l=0; 
+			i=l=0;
 		}
 		else {
 			for(i=0;i<l;i++)
 				outchar(BS);
 			rputs(str1);
-			i=l; 
+			i=l;
 		}
-		if(ch!=SP && ch!=TAB)
-			ungetkey(ch); 
+		if(ch!=' ' && ch!=TAB)
+			ungetkey(ch);
 	}
 
 	while((ch=getkey(mode|K_GETSTR))!=CR && !aborted) {
@@ -932,51 +998,51 @@ int getstr(char *strout, size_t maxlen, long mode)
 					rprintf("%.*s",l-i,str1+i);
 					rprintf("\x1b[%dD",l-i);
 					if(i==maxlen-1)
-						ins=0; 
+						ins=0;
 				}
 				outchar(str1[i++]=1);
 				break;
-			case 2:	/* Ctrl-B Beginning of Line */
+			case TERM_KEY_HOME:	/* Ctrl-B Beginning of Line */
 				if(user_misc&ANSI && i) {
 					bprintf("\x1b[%dD",i);
-					i=0; 
+					i=0;
 				}
 				break;
 			case 4:	/* Ctrl-D Delete word right */
         		if(i<l) {
 					x=i;
-					while(x<l && str1[x]!=SP) {
-						outchar(SP);
-						x++; 
+					while(x<l && str1[x]!=' ') {
+						outchar(' ');
+						x++;
 					}
-					while(x<l && str1[x]==SP) {
-						outchar(SP);
-						x++; 
+					while(x<l && str1[x]==' ') {
+						outchar(' ');
+						x++;
 					}
 					bprintf("\x1b[%dD",x-i);   /* move cursor back */
 					z=i;
 					while(z<l-(x-i))  {             /* move chars in string */
 						outchar(str1[z]=str1[z+(x-i)]);
-						z++; 
+						z++;
 					}
 					while(z<l) {					/* write over extra chars */
-						outchar(SP);
-						z++; 
+						outchar(' ');
+						z++;
 					}
 					bprintf("\x1b[%dD",z-i);
 					l-=x-i; 						/* l=new length */
 				}
 				break;
-			case 5:	/* Ctrl-E End of line */
+			case TERM_KEY_END:	/* Ctrl-E End of line */
 				if(user_misc&ANSI && i<l) {
 					bprintf("\x1b[%dC",l-i);  /* move cursor right one */
-					i=l; 
+					i=l;
 				}
 				break;
 			case 6:	/* Ctrl-F move cursor forewards */
 				if(i<l && (user_misc&ANSI)) {
 					bputs("\x1b[C");   /* move cursor right one */
-					i++; 
+					i++;
 				}
 				break;
 			case 7:
@@ -988,31 +1054,31 @@ int getstr(char *strout, size_t maxlen, long mode)
 					for(x=l;x>i;x--)
 						str1[x]=str1[x-1];
 					if(i==maxlen-1)
-						ins=0; 
+						ins=0;
 				 }
 				 if(i<maxlen) {
 					str1[i++]=7;
-					outchar(7); 
+					outchar(7);
 				 }
 				 break;
 			case 14:	/* Ctrl-N Next word */
 				if(i<l && (user_misc&ANSI)) {
 					x=i;
-					while(str1[i]!=SP && i<l)
+					while(str1[i]!=' ' && i<l)
 						i++;
-					while(str1[i]==SP && i<l)
+					while(str1[i]==' ' && i<l)
 						i++;
-					bprintf("\x1b[%dC",i-x); 
+					bprintf("\x1b[%dC",i-x);
 				}
 				break;
 			case 0x1c:	  /* Ctrl-\ Previous word */
 				if(i && (user_misc&ANSI)) {
 					x=i;
-					while(str1[i-1]==SP && i)
+					while(str1[i-1]==' ' && i)
 						i--;
-					while(str1[i-1]!=SP && i)
+					while(str1[i-1]!=' ' && i)
 						i--;
-					bprintf("\x1b[%dD",x-i); 
+					bprintf("\x1b[%dD",x-i);
 				}
 				break;
 			case 18:	/* Ctrl-R Redraw Line */
@@ -1026,10 +1092,10 @@ int getstr(char *strout, size_t maxlen, long mode)
 						for(x=l;x>i;x--)
 							str1[x]=str1[x-1];
 						if(i==maxlen-1)
-							ins=0; 
+							ins=0;
 					}
-					str1[i++]=SP;
-					outchar(SP); 
+					str1[i++]=' ';
+					outchar(' ');
 				}
 				while(i<maxlen && i%TABSIZE) {
             		if(ins) {
@@ -1038,10 +1104,10 @@ int getstr(char *strout, size_t maxlen, long mode)
 						for(x=l;x>i;x--)
 							str1[x]=str1[x-1];
 						if(i==maxlen-1)
-							ins=0; 
+							ins=0;
 					}
-					str1[i++]=SP;
-					outchar(SP); 
+					str1[i++]=' ';
+					outchar(' ');
 				}
 				if(ins)
 					redrwstr(str1,i,l,0);
@@ -1056,10 +1122,10 @@ int getstr(char *strout, size_t maxlen, long mode)
 					z=i;
 					while(z<l)	{		/* move the characters in the line */
 						outchar(str1[z]=str1[z+1]);
-						z++; 
+						z++;
 					}
-					outchar(SP);		/* write over the last char */
-					bprintf("\x1b[%dD",(l-i)+1); 
+					outchar(' ');		/* write over the last char */
+					bprintf("\x1b[%dD",(l-i)+1);
 				}
 				else
 					bputs("\b \b");
@@ -1068,7 +1134,7 @@ int getstr(char *strout, size_t maxlen, long mode)
 				str1[l]=0;
 				l=bstrlen(str1);
 				for(x=0;x<(maxlen-l)/2;x++)
-					str2[x]=SP;
+					str2[x]=' ';
 				str2[x]=0;
 				strcat(str2,str1);
 				strcpy(strout,str2);
@@ -1080,61 +1146,61 @@ int getstr(char *strout, size_t maxlen, long mode)
 						bputs("\b");
 					bputs(strout);
 					if(mode&K_LINE)
-						attr(LIGHTGRAY); 
+						attr(LIGHTGRAY);
 				}
 				CRLF;
 				return(l);
 			case 23:	/* Ctrl-W   Delete word left */
 				if(i<l) {
 					x=i;							/* x=original offset */
-					while(i && str1[i-1]==SP) {
+					while(i && str1[i-1]==' ') {
 						outchar(BS);
-						i--; 
+						i--;
 					}
-					while(i && str1[i-1]!=SP) {
+					while(i && str1[i-1]!=' ') {
 						outchar(BS);
-						i--; 
+						i--;
 					}
 					z=i;                            /* i=z=new offset */
 					while(z<l-(x-i))  {             /* move chars in string */
 						outchar(str1[z]=str1[z+(x-i)]);
-						z++; 
+						z++;
 					}
 					while(z<l) {					/* write over extra chars */
-						outchar(SP);
-						z++; 
+						outchar(' ');
+						z++;
 					}
 					bprintf("\x1b[%dD",z-i);        /* back to new x corridnant */
 					l-=x-i; 						/* l=new length */
 				}
 				else {
-            		while(i && str1[i-1]==SP) {
+            		while(i && str1[i-1]==' ') {
 						i--;
 						l--;
-						bputs("\b \b"); 
+						bputs("\b \b");
 					}
-					while(i && str1[i-1]!=SP) {
+					while(i && str1[i-1]!=' ') {
 						i--;
 						l--;
-						bputs("\b \b"); 
-					} 
+						bputs("\b \b");
+					}
 				}
 				break;
 			case 24:	/* Ctrl-X   Delete entire line */
 				while(i<l) {
-					outchar(SP);
-					i++; 
+					outchar(' ');
+					i++;
 				}
 				while(l) {
 					l--;
-					bputs("\b \b"); 
+					bputs("\b \b");
 				}
 				i=0;
 				break;
 			case 25:	/* Ctrl-Y	Delete to end of line */
 				if(user_misc&ANSI) {
 					bputs("\x1b[s\x1b[K\x1b[u");
-					l=i; 
+					l=i;
 				}
 				break;
 			case 22:	/* Ctrl-V		Toggles Insert/Overwrite */
@@ -1142,7 +1208,7 @@ int getstr(char *strout, size_t maxlen, long mode)
 					break;
 				if(ins) {
 					ins=0;
-					redrwstr(str1,i,l,0); 
+					redrwstr(str1,i,l,0);
 				}
 				else if(i<l) {
 					ins=1;
@@ -1157,65 +1223,71 @@ int getstr(char *strout, size_t maxlen, long mode)
 			case 0x1d:	/* Ctrl-]  Reverse Cursor Movement */
 				if(i && (user_misc&ANSI)) {
 					bputs("\x1b[D");   /* move cursor left one */
-					i--; 
+					i--;
 				}
 				break;
 			case 0x7f:	/* Ctrl-BkSpc (DEL) Delete current char */
-				if(i==l)
+				if(i==l) {	/* Backspace if end of line */
+					if(i) {
+						i--;
+						l--;
+						bputs("\b \b");
+					}
 					break;
+				}
 				l--;
 				z=i;
 				while(z<l)	{		/* move the characters in the line */
 					outchar(str1[z]=str1[z+1]);
-					z++; 
+					z++;
 				}
-				outchar(SP);		/* write over the last char */
+				outchar(' ');		/* write over the last char */
 				bprintf("\x1b[%dD",(l-i)+1);
 				break;
 			case ESC:
 				if(!(user_misc&ANSI))
 					break;
 				if((ch=getkey(0x8000))!='[') {
-					ungetch(ch);
-					break; 
+					ungetkey(ch);
+					break;
 				}
 				if((ch=getkey(0x8000))=='C') {
 					if(i<l) {
 						bputs("\x1b[C");   /* move cursor right one */
-						i++; 
-					} 
+						i++;
+					}
 				}
 				else if(ch=='D') {
 					if(i) {
 						bputs("\x1b[D");   /* move cursor left one */
-						i--; 
-					} 
+						i--;
+					}
 				}
 				else {
 					while(isdigit(ch) || ch==';' || isalpha(ch)) {
 						if(isalpha(ch)) {
 							ch=getkey(0);
-							break; 
+							break;
 						}
-						ch=getkey(0); 
+						ch=getkey(0);
 					}
-					ungetch(ch); 
+					ungetkey(ch);
 				}
 				break;
 			default:
-				if(mode&K_WRAP && i==maxlen && ch>=SP && !ins) {
+				if(mode&K_WRAP && i==maxlen && ch>=' ' && !ins) {
 					str1[i]=0;
-					if(ch==SP) {	/* don't wrap a space as last char */
+					if(ch==' ') {	/* don't wrap a space as last char */
 						strcpy(strout,str1);
 						if(stripattr(strout))
 							redrwstr(strout,i,l,K_MSG);
 						CRLF;
-						return(i); 
+						return(i);
 					}
 					x=i-1;
 					z=1;
 					wordwrap[0]=ch;
-					while(str1[x]!=SP && x)
+					while(str1[x]!=' ' && x)
 						wordwrap[z++]=str1[x--];
 					if(x<(maxlen/2)) {
 						wordwrap[1]=0;	/* only wrap one character */
@@ -1223,12 +1295,12 @@ int getstr(char *strout, size_t maxlen, long mode)
 						if(stripattr(strout))
 							redrwstr(strout,i,l,K_MSG);
 						CRLF;
-						return(i); 
+						return(i);
 					}
 					wordwrap[z]=0;
 					while(z--) {
 						i--;
-						bputs("\b \b"); 
+						bputs("\b \b");
 					}
 					strrev(wordwrap);
 					str1[x]=0;
@@ -1236,15 +1308,16 @@ int getstr(char *strout, size_t maxlen, long mode)
 					if(stripattr(strout))
 						redrwstr(strout,i,x,mode);
 					CRLF;
-					return(x); 
+					return(x);
 				}
-				if(i<maxlen && ch>=SP) {
-					if(mode&K_UPRLWR)
-						if(!i || (i && (str1[i-1]==SP || str1[i-1]=='-'
+				if(i<maxlen && ch>=' ') {
+					if(mode&K_UPRLWR) {
+						if(!i || (i && (str1[i-1]==' ' || str1[i-1]=='-'
 							|| str1[i-1]=='.' || str1[i-1]=='_')))
 							ch=toupper(ch);
 						else
 							ch=tolower(ch);
+					}
 					if(ins) {
 						if(l<maxlen)	/* l<maxlen */
 							l++;
@@ -1254,17 +1327,17 @@ int getstr(char *strout, size_t maxlen, long mode)
 						rprintf("\x1b[%dD",l-i);
 						if(i==maxlen-1) {
 							bputs("  \b\b");
-							ins=0; 
-						} 
+							ins=0;
+						}
 					}
 					str1[i++]=ch;
-					outchar(ch); 
-				} 
+					outchar(ch);
+				}
 			} /* switch */
 		if(i>l)
 			l=i;
 		if(mode&K_CHAT && !l)
-			return(0); 
+			return(0);
 	}
 	if(i>l)
 		l=i;
@@ -1272,7 +1345,7 @@ int getstr(char *strout, size_t maxlen, long mode)
 	if(!aborted) {
 		strcpy(strout,str1);
 		if(stripattr(strout) || ins)
-			redrwstr(strout,i,l,K_MSG); 
+			redrwstr(strout,i,l,K_MSG);
 	}
 	else
 		l=0;
@@ -1280,16 +1353,15 @@ int getstr(char *strout, size_t maxlen, long mode)
 	if(!(mode&K_NOCRLF)) {
 		outchar(CR);
 		if(!(mode&K_MSG && aborted))
-			outchar(LF); 
+			outchar(LF);
 	}
 	return(l);
 }
-#endif
 
 /****************************************************************************/
 /* Redraws str using i as current cursor position and l as length           */
 /****************************************************************************/
-void redrwstr(char *strin, int i, int l, long mode)
+void redrwstr(const char *strin, int i, int l, long mode)
 {
 	char str[256],c;
 
@@ -1304,17 +1376,17 @@ void redrwstr(char *strin, int i, int l, long mode)
 	if(user_misc&ANSI) {
 		bputs("\x1b[K");
 		if(i<l)
-			bprintf("\x1b[%dD",l-i); 
+			bprintf("\x1b[%dD",l-i);
 	}
 	else {
 		while(c<79)	{ /* clear to end of line */
-			outchar(SP);
-			c++; 
+			outchar(' ');
+			c++;
 		}
 		while(c>l) { /* back space to end of string */
 			outchar(BS);
-			c--; 
-		} 
+			c--;
+		}
 	}
 }
 
@@ -1324,8 +1396,8 @@ void redrwstr(char *strin, int i, int l, long mode)
 /****************************************************************************/
 char stripattr(char *strin)
 {
-	uchar str[81];
-	uchar a,c,d,e;
+	char str[81];
+	size_t a,c,d,e;
 
 	e=strlen(strin);
 	for(a=c=d=0;c<e;c++) {
@@ -1359,10 +1431,10 @@ char stripattr(char *strin)
 					break;
 				default:
 					c++;
-					continue; 
-			} 
+					continue;
+			}
 		}
-		str[d++]=strin[c]; 
+		str[d++]=strin[c];
 	}
 	str[d]=0;
 	strcpy(strin,str);
@@ -1389,7 +1461,7 @@ void attr(int atr)
 
 	if((!(atr&HIGH) && curatr&HIGH)	|| (!(atr&BLINK) && curatr&BLINK)
 		|| atr==LIGHTGRAY) {
-		bprintf("\x1b[0m");
+		bputs("\x1b[0m");
 		curatr=LIGHTGRAY; }
 
 	if(atr==LIGHTGRAY) {				 /* no attributes */
@@ -1398,60 +1470,60 @@ void attr(int atr)
 
 	if(atr&BLINK) {						/* special attributes */
 		if(!(curatr&BLINK))
-			bprintf("\x1b[5m"); }
+			bputs("\x1b[5m"); }
 	if(atr&HIGH) {
 		if(!(curatr&HIGH))
-			bprintf("\x1b[1m"); }
+			bputs("\x1b[1m"); }
 
 	if((atr&0x7)==BLACK) {				/* foreground colors */
 		if((curatr&0x7)!=BLACK)
-			bprintf("\x1b[30m"); }
+			bputs("\x1b[30m"); }
 	else if((atr&0x7)==RED) {
 		if((curatr&0x7)!=RED)
-			bprintf("\x1b[31m"); }
+			bputs("\x1b[31m"); }
 	else if((atr&0x7)==GREEN) {
 		if((curatr&0x7)!=GREEN)
-			bprintf("\x1b[32m"); }
+			bputs("\x1b[32m"); }
 	else if((atr&0x7)==BROWN) {
 		if((curatr&0x7)!=BROWN)
-			bprintf("\x1b[33m"); }
+			bputs("\x1b[33m"); }
 	else if((atr&0x7)==BLUE) {
 		if((curatr&0x7)!=BLUE)
-			bprintf("\x1b[34m"); }
+			bputs("\x1b[34m"); }
 	else if((atr&0x7)==MAGENTA) {
 		if((curatr&0x7)!=MAGENTA)
-			bprintf("\x1b[35m"); }
+			bputs("\x1b[35m"); }
 	else if((atr&0x7)==CYAN) {
 		if((curatr&0x7)!=CYAN)
-			bprintf("\x1b[36m"); }
+			bputs("\x1b[36m"); }
 	else if((atr&0x7)==LIGHTGRAY) {
 		if((curatr&0x7)!=LIGHTGRAY)
-			bprintf("\x1b[37m"); }
+			bputs("\x1b[37m"); }
 
 	if((atr&0x70)==(BLACK<<4)) {		/* background colors */
 		if((curatr&0x70)!=(BLACK<<4))
-			bprintf("\x1b[40m"); }
+			bputs("\x1b[40m"); }
 	else if((atr&0x70)==(RED<<4)) {
 		if((curatr&0x70)!=(RED<<4))
-			bprintf("\x1b[41m"); }
+			bputs("\x1b[41m"); }
 	else if((atr&0x70)==(GREEN<<4)) {
 		if((curatr&0x70)!=(GREEN<<4))
-			bprintf("\x1b[42m"); }
+			bputs("\x1b[42m"); }
 	else if((atr&0x70)==(BROWN<<4)) {
 		if((curatr&0x70)!=(BROWN<<4))
-			bprintf("\x1b[43m"); }
+			bputs("\x1b[43m"); }
 	else if((atr&0x70)==(BLUE<<4)) {
 		if((curatr&0x70)!=(BLUE<<4))
-			bprintf("\x1b[44m"); }
+			bputs("\x1b[44m"); }
 	else if((atr&0x70)==(MAGENTA<<4)) {
 		if((curatr&0x70)!=(MAGENTA<<4))
-			bprintf("\x1b[45m"); }
+			bputs("\x1b[45m"); }
 	else if((atr&0x70)==(CYAN<<4)) {
 		if((curatr&0x70)!=(CYAN<<4))
-			bprintf("\x1b[46m"); }
+			bputs("\x1b[46m"); }
 	else if((atr&0x70)==(LIGHTGRAY<<4)) {
 		if((curatr&0x70)!=(LIGHTGRAY<<4))
-			bprintf("\x1b[47m"); }
+			bputs("\x1b[47m"); }
 
 	curatr=atr;
 }
@@ -1464,36 +1536,17 @@ void cls(void)
 	if(lncntr>1 && !tos) {
 		lncntr=0;
 		CRLF;
-		//pause();
-		//while(lncntr && !aborted)
-			//pause();
-         }
+		bpause();
+		while(lncntr && !aborted)
+			bpause(); }
 
 	if(user_misc&ANSI)
-		bprintf("\x1b[2J");
-	else {
+		bputs("\x1b[2J\x1b[H");	/* clear screen, home cursor */
+	else
 		outchar(FF);
-		clrscr(); }
 	tos=1;
 	lncntr=0;
 }
-
-#ifdef __WATCOMC__
-
-short wherey(void)
-{
-	struct rccoord rc;
-
-	rc=_gettextposition();
-	return(rc.col);
-}
-
-void clrscr(void)
-{
-	_clearscreen(_GCLEARSCREEN);
-}
-
-#endif
 
 /****************************************************************************/
 /* performs the correct attribute modifications for the Ctrl-A code			*/
@@ -1508,7 +1561,7 @@ void ctrl_a(char x)
 			bprintf("\x1b[%uC",(uchar)x-0x7f);
 		else
 			for(i=0;i<(uchar)x-0x7f;i++)
-				outchar(SP);
+				outchar(' ');
 		return; }
 
 	switch(toupper(x)) {
@@ -1530,7 +1583,7 @@ void ctrl_a(char x)
 			mswait(2000);
 			break;
 		case 'P':	/* Pause */
-			//pause();
+			bpause();
 			break;
 		case 'Q':   /* Pause reset */
 			lncntr=0;
@@ -1545,7 +1598,7 @@ void ctrl_a(char x)
 			else {
 				i=j=wherey();
 				while(i++<80)
-					outchar(SP);
+					outchar(' ');
 				while(j++<80)
 					outchar(BS); }
 #endif
@@ -1609,35 +1662,35 @@ void ctrl_a(char x)
 			attr(atr);
 			break;
 		case '0':	/* Black Background */
-			atr=(atr&0x8f)|(BLACK<<4);
+			atr=(atr&0x8f)|(uchar)(BLACK<<4);
 			attr(atr);
 			break;
 		case '1':	/* Red Background */
-			atr=(atr&0x8f)|(RED<<4);
+			atr=(atr&0x8f)|(uchar)(RED<<4);
 			attr(atr);
 			break;
 		case '2':	/* Green Background */
-			atr=(atr&0x8f)|(GREEN<<4);
+			atr=(atr&0x8f)|(uchar)(GREEN<<4);
 			attr(atr);
 			break;
 		case '3':	/* Yellow Background */
-			atr=(atr&0x8f)|(BROWN<<4);
+			atr=(atr&0x8f)|(uchar)(BROWN<<4);
 			attr(atr);
 			break;
 		case '4':	/* Blue Background */
-			atr=(atr&0x8f)|(BLUE<<4);
+			atr=(atr&0x8f)|(uchar)(BLUE<<4);
 			attr(atr);
 			break;
 		case '5':	/* Magenta Background */
-			atr=(atr&0x8f)|(MAGENTA<<4);
+			atr=(atr&0x8f)|(uchar)(MAGENTA<<4);
 			attr(atr);
 			break;
 		case '6':	/* Cyan Background */
-			atr=(atr&0x8f)|(CYAN<<4);
+			atr=(atr&0x8f)|(uchar)(CYAN<<4);
 			attr(atr);
 			break;
 		case '7':	/* White Background */
-			atr=(atr&0x8f)|(LIGHTGRAY<<4);
+			atr=(atr&0x8f)|(uchar)(LIGHTGRAY<<4);
 			attr(atr);
 			break; }
 }
@@ -1647,7 +1700,7 @@ void ctrl_a(char x)
 /* number of times if the attempted file is already open or denying access  */
 /* for some other reason.	All files are opened in BINARY mode.			*/
 /****************************************************************************/
-int nopen(char *str, int access)
+int nopen(const char *str, int access)
 {
 	char count=0;
 	int file,share;
@@ -1655,7 +1708,7 @@ int nopen(char *str, int access)
 	if(access&SH_DENYNO) share=SH_DENYNO;
 	else if(access==O_RDONLY) share=SH_DENYWR;
 	else share=SH_DENYRW;
-	while(((file=sopen(str,O_BINARY|access,share,S_IWRITE))==-1)
+	while(((file=sopen(str,O_BINARY|access,share,S_IREAD|S_IWRITE))==-1)
 		&& errno==EACCES && count++<LOOP_NOPEN)
 		if(count>10)
 			mswait(50);
@@ -1663,7 +1716,7 @@ int nopen(char *str, int access)
 		bprintf("\r\nNOPEN COLLISION - File: %s Count: %d\r\n"
 			,str,count);
 	if(file==-1 && errno==EACCES)
-		bputs("\7\r\nNOPEN: ACCESS DENIED\r\n\7");
+		bprintf("\7\r\nNOPEN: ACCESS DENIED: %s\r\n\7", str);
 	return(file);
 }
 
@@ -1674,52 +1727,56 @@ int nopen(char *str, int access)
 /****************************************************************************/
 void initdata(void)
 {
-	char str[256],tmp[256];
-	int i;
-	FILE *stream;
+	char	str[256],tmp[256];
+	char*	p;
+	int		i;
+	FILE*	stream;
 
 #ifdef _WINSOCKAPI_
     WSAStartup(MAKEWORD(1,1), &WSAData);
+	client_socket=INVALID_SOCKET;
 #endif
 
 #ifdef __WATCOMC__
 	putenv("TZ=UCT0");
-	if ( nNoLocalWindow == 0 )
-   	{
-		setvbuf(stdout,NULL,_IONBF,0);
-		setvbuf(stderr,NULL,_IONBF,0);
-      }
+	setvbuf(stdout,NULL,_IONBF,0);
+	setvbuf(stderr,NULL,_IONBF,0);
 #endif
 
-
-	if ( nNoLocalWindow == 0 )
-   	{
-		#ifdef __SC__
-	    	setvbuf(stdout,NULL,_IONBF,0);
-			con_fp=stdout;
-		#else
-			con_fp=stderr;
-		#endif
-		}
-
+#ifdef __SC__
+    setvbuf(stdout,NULL,_IONBF,0);
+	con_fp=stdout;
+#elif defined (__unix__)
+	setvbuf(stdout,NULL,_IONBF,0);
+	setvbuf(stderr,NULL,_IONBF,0);
+	con_fp=stdout;
+#else
+	con_fp=stderr;
+#endif
 
 #ifdef __16BIT__
 
-	if ( nNoLocalWindow == 0 )
-   	{
-		#if defined(__TURBOC__) || defined(__SC__)	/* Borland or Symantec */
-			ctrlbrk(cbreakh);
-		#endif
-
-		if(setmode(fileno(con_fp),O_BINARY)==-1) {	 // eliminate LF expansion 
-			printf("Can't set console output to BINARY\n");
-			exit(1); }
-      }
+#if defined(__TURBOC__) || defined(__SC__)	/* Borland or Symantec */
+	ctrlbrk(cbreakh);
 #endif
+
+	if(setmode(fileno(con_fp),O_BINARY)==-1) {	 /* eliminate LF expansion */
+		printf("Can't set console output to BINARY\n");
+		exit(1); }
+#endif
+
+	/* Sets node_dir to node directory environment variable defined by synchronet. */
+	if(node_dir[0]==0 && (p=getenv("SBBSNODE"))!=NULL)
+		sprintf(node_dir,"%.*s",(int)sizeof(node_dir)-1,p);
 
 	sprintf(str,"%sXTRN.DAT",node_dir);
 	if((stream=fopen(str,"rt"))==NULL) {
-		exit(1); }
+		strlwr(str);
+		if((stream=fopen(str,"rt"))==NULL) {
+			printf("Can't open %s\r\n",str);
+			exit(1);
+		}
+	}
 	fgets(str,81,stream);			/* username */
 	sprintf(user_name,"%.25s",str);
 	truncsp(user_name);
@@ -1736,7 +1793,7 @@ void initdata(void)
 	fgets(str,81,stream);			/* ctrl dir */
 	str[50]=0;
 	if(str[0]=='.')
-		sprintf(ctrl_dir,"%s%s",node_dir,str);
+		snprintf(ctrl_dir, sizeof(ctrl_dir), "%s%s",node_dir,str);
 	else
 		strcpy(ctrl_dir,str);
 	truncsp(ctrl_dir);
@@ -1746,7 +1803,7 @@ void initdata(void)
 
 	fgets(str,81,stream);			/* data dir */
 	if(str[0]=='.')
-		sprintf(data_dir,"%s%s",node_dir,str);
+		snprintf(data_dir, sizeof(data_dir), "%s%s",node_dir,str);
 	else
 		sprintf(data_dir,"%.40s",str);
 	truncsp(data_dir);
@@ -1817,17 +1874,19 @@ void initdata(void)
 	sprintf(mdm_answ,"%.63s",str);
 	truncsp(mdm_answ);
 	fgets(str,81,stream);			/* memory address of modem status register */
-	msr=(uint FAR16 *)atol(str);
+	msr=(uint *)atol(str);
 	if(!fgets(str,81,stream))		/* total number of external programs */
 		total_xtrns=0;
 	else
 		total_xtrns=atoi(str);
-	if(total_xtrns && (xtrn=(char **)MALLOC(sizeof(char *)*total_xtrns))==NULL) {
+	if(total_xtrns && (xtrn=(char **)malloc(sizeof(char *)*total_xtrns))==NULL) {
+		printf("Allocation error 1: %u\r\n",(unsigned int)(sizeof(char *)*total_xtrns));
 		exit(1); }
 	for(i=0;i<(int)total_xtrns;i++) {
 		fgets(str,81,stream);
 		truncsp(str);
-		if((xtrn[i]=(char *)MALLOC(strlen(str)+1))==NULL) {
+		if((xtrn[i]=(char *)malloc(strlen(str)+1))==NULL) {
+			printf("Allocation error 2 (%u): %u\r\n",i,(unsigned int)strlen(str)+1);
 			exit(1); }
 		strcpy(xtrn[i],str); }
 	fgets(str,81,stream);			/* user's main flags */
@@ -1857,7 +1916,7 @@ void initdata(void)
 	fgets(str,81,stream);
 	sprintf(user_flags4,"%.26s",str);
 	if(fgets(str,81,stream))		/* Time-slice API type */
-#ifdef __16BIT__ 
+#ifdef __16BIT__
 		mswtyp=ahtoul(str);
 #else
 		;
@@ -1873,10 +1932,10 @@ void initdata(void)
 	str[0]=0;
 	fgets(str,81,stream);			/* exec dir */
 	if(!str[0])
-		sprintf(exec_dir,"%s..\\EXEC\\",ctrl_dir);
+		snprintf(exec_dir, sizeof(exec_dir), "%s../exec/",ctrl_dir);
 	else {
 		if(str[0]=='.')
-			sprintf(exec_dir,"%s%s",node_dir,str);
+			snprintf(exec_dir, sizeof(exec_dir), "%s%s",node_dir,str);
 		else
 			sprintf(exec_dir,"%.50s",str); }
 	truncsp(exec_dir);
@@ -1887,10 +1946,10 @@ void initdata(void)
 	str[0]=0;
 	fgets(str,81,stream);			/* text dir */
 	if(!str[0])
-		sprintf(text_dir,"%s..\\TEXT\\",ctrl_dir);
+		snprintf(text_dir, sizeof(text_dir), "%s../text/",ctrl_dir);
 	else {
 		if(str[0]=='.')
-			sprintf(text_dir,"%s%s",node_dir,str);
+			snprintf(text_dir, sizeof(text_dir), "%s%s",node_dir,str);
 		else
 			sprintf(text_dir,"%.50s",str); }
 	truncsp(text_dir);
@@ -1901,10 +1960,10 @@ void initdata(void)
 	str[0]=0;
 	fgets(str,81,stream);			/* temp dir */
 	if(!str[0])
-		sprintf(temp_dir,"%sTEMP\\",node_dir);
+		snprintf(temp_dir, sizeof(temp_dir), "%stemp/",node_dir);
 	else {
-		if(str[0]!='\\' && str[1]!=':')
-			sprintf(temp_dir,"%s%s",node_dir,str);
+		if(str[0]!=BACKSLASH && str[1]!=':')
+			snprintf(temp_dir, sizeof(temp_dir), "%s%s",node_dir,str);
 		else
 			sprintf(temp_dir,"%.50s",str); }
 	truncsp(temp_dir);
@@ -1928,22 +1987,45 @@ void initdata(void)
 	str[0]=0;
 	fgets(str,81,stream);
 	client_socket=atoi(str);
+
+	if(client_socket!=INVALID_SOCKET) {
+
+#ifdef _WIN32
+		output_sem=CreateEvent(
+						 NULL	// pointer to security attributes
+						,TRUE	// flag for manual-reset event
+						,FALSE	// flag for initial state
+						,NULL	// pointer to event-object name
+						);
+		if(output_sem==NULL) {
+			printf("\r\n\7Error %d creating output_event\r\n",GetLastError());
+			exit(1);
+		}
+#else
+		sem_init(&output_sem,0,0);
+#endif
+		_beginthread(output_thread,0,NULL);
+	}
 #endif
 
 	fclose(stream);
 
+	atexit(flushoutput);
+
 	sprintf(str,"%sINTRSBBS.DAT",node_dir);     /* Shrank to run! */
 	if(fexist(str)) {
 		if((stream=fopen(str,"rt"))==NULL) {
-			exit(1); }
+			printf("Can't open %s\n",str);
+			exit(1);
+		}
 		fgets(tmp,81,stream);					/* so get MSR address from file */
-		msr=(uint FAR16 *)atol(tmp);
+		msr=(uint *)atol(tmp);
 		fclose(stream);
-		remove(str); }
+		remove(str);
+	}
 
 	starttime=time(NULL);			/* initialize start time stamp */
 	wordwrap[0]=0;					/* set wordwrap to null */
-	attr(LIGHTGRAY);				/* initialize color and curatr to plain */
 	mnehigh=LIGHTGRAY|HIGH; 		/* mnemonics highlight color */
 	mnelow=GREEN;					/* mnemonics normal text color */
 	sec_warn=180;					/* seconds till inactivity warning */
@@ -1954,14 +2036,17 @@ void initdata(void)
 	sysop_level=90; 				/* Minimum level to be considered sysop */
 	timeleft_warn=0;				/* Running out of time warning */
 
-	sprintf(str,"%s%s",ctrl_dir,"NODE.DAB");
-	if((nodefile=sopen(str,O_BINARY|O_RDWR,SH_DENYNO,S_IREAD))==-1) {
-		bprintf("\r\n\7Error opening %s\r\n",str);
-		exit(1); }
+	sprintf(str,"%s%s",ctrl_dir,"node.dab");
+	if((nodefile=sopen(str,O_BINARY|O_RDWR,SH_DENYNO,S_IREAD|S_IWRITE))==-1) {
+		printf("\r\n\7Error opening %s\r\n",str);
+		exit(1);
+	}
 
-	sprintf(str,"%sUSER\\NAME.DAT",data_dir);
+	sprintf(str,"%suser/name.dat",data_dir);
 	if((i=nopen(str,O_RDONLY))==-1) {
-		exit(1); }
+		printf("\r\n\7Error opening %s\r\n",str);
+		exit(1);
+	}
 	memset(str,0,30);
 	read(i,str,26);
 	close(i);
@@ -1970,22 +2055,21 @@ void initdata(void)
 	else				/* Version 1a */
 		name_len=30;
 
-#ifndef __16BIT__
-	if(client_socket!=INVALID_SOCKET) {
-		output_event=CreateEvent(
-						 NULL	// pointer to security attributes
-						,TRUE	// flag for manual-reset event
-						,FALSE	// flag for initial state
-						,NULL	// pointer to event-object name
-						);
-		if(output_event==NULL) {
-			exit(1);
-		}
-
-		_beginthread(output_thread,0,NULL);
-	}
+#ifdef __unix__
+	_termios_setup();
 #endif
 
+	if(client_socket==INVALID_SOCKET)
+		xsdk_mode&=~XSDK_MODE_NOCONSOLE;
+
+	if(xsdk_mode&XSDK_MODE_NOCONSOLE) {
+		con_fp=NULL;
+#ifdef _WIN32
+		FreeConsole();
+#endif
+	}
+
+	attr(LIGHTGRAY);				/* initialize color and curatr to plain */
 }
 
 /****************************************************************************/
@@ -2015,28 +2099,33 @@ void get_term(void)
 /****************************************************************************/
 /* Truncates white-space chars off end of 'str' and terminates at first tab */
 /****************************************************************************/
+#ifndef USE_XPDEV
 void truncsp(uchar *str)
 {
 	char c;
 
 	str[strcspn(str,"\t")]=0;
 	c=strlen(str);
-	while(c && (uchar)str[c-1]<=SP) c--;
+	while(c && (uchar)str[c-1]<=' ') c--;
 	str[c]=0;
 }
+#endif
 
 /****************************************************************************/
 /* Puts a backslash on path strings 										*/
 /****************************************************************************/
+#ifndef USE_XPDEV
 void backslash(char *str)
 {
     int i;
 
 	i=strlen(str);
-	if(i && str[i-1]!='\\') {
-		str[i]='\\'; str[i+1]=0; 
+	if(i && str[i-1]!='\\' && str[i-1]!='/') {
+		str[i]=BACKSLASH;
+		str[i+1]=0;
 	}
 }
+#endif	/* USE_XPDEV */
 
 
 /****************************************************************************/
@@ -2048,27 +2137,26 @@ void checktimeleft(void)
 {
 	if(!SYSOP && !strchr(user_exempt,'T') && time(NULL)-starttime>timeleft) {
 		bputs("\1_\n\1r\1hTime's up.\n");
-      exit(0);  }
+		exit(0);  }
 }
 
 /****************************************************************************/
 /* Prints a file remotely and locally, interpreting ^A sequences.			*/
 /* 'str' is the path of the file to print                                   */
 /****************************************************************************/
-void printfile(char *str)
+void printfile(const char *str)
 {
 	char *buf;
 	int file;
 	ulong length;
 
-	strupr(str);
 	if(!tos)
 		CRLF;
 	if((file=nopen(str,O_RDONLY))==-1) {
 		bprintf("File not Found: %s\r\n",str);
 		return; }
 	length=filelength(file);
-	if((buf=MALLOC(length+1L))==NULL) {
+	if((buf=malloc(length+1L))==NULL) {
 		close(file);
 		bprintf("\7\r\nPRINTFILE: Error allocating %lu bytes of memory for %s.\r\n"
 			,length+1L,str);
@@ -2077,14 +2165,14 @@ void printfile(char *str)
 	close(file);
 	bputs(buf);
 	aborted=0;
-	FREE(buf);
+	free(buf);
 }
 
 /****************************************************************************/
 /* Returns a char pointer to the name of the user that corresponds to		*/
 /* usernumber. Takes value directly from database.							*/
 /****************************************************************************/
-char *username(uint usernumber)
+char *xsdk_username(uint usernumber)
 {
 	static	char name[26];
 	char	str[128];
@@ -2096,7 +2184,7 @@ char *username(uint usernumber)
 	if(!usernumber) {
 		bputs("\7username: called with zero usernumber\r\n");
 		return(name); }
-	sprintf(str,"%sUSER\\NAME.DAT",data_dir);
+	snprintf(str, sizeof(str), "%suser/name.dat",data_dir);
 	if((file=nopen(str,O_RDONLY))==-1) {
 		bprintf("\7username: couldn't open %s\r\n",str);
 		return(name); }
@@ -2119,7 +2207,7 @@ char *username(uint usernumber)
 /* Returns the number of the user 'username' from the NAME.DAT file.        */
 /* If the username is not found, the function returns 0.					*/
 /****************************************************************************/
-uint usernumber(char *username)
+uint usernumber(const char *username)
 {
 	char str[128];
 	int i,file;
@@ -2127,7 +2215,7 @@ uint usernumber(char *username)
 
 	if(!data_dir[0])
 		return(0);
-	sprintf(str,"%sUSER\\NAME.DAT",data_dir);
+	snprintf(str, sizeof(str), "%suser/name.dat",data_dir);
 	if((file=nopen(str,O_RDONLY))==-1 || (stream=fdopen(file,"rb"))==NULL) {
 		if(file!=-1)
 			close(file);
@@ -2147,90 +2235,15 @@ uint usernumber(char *username)
 
 
 /****************************************************************************/
-/* Checks the disk drive for the existance of a file. Returns 1 if it 		*/
-/* exists, 0 if it doesn't.													*/
-/* Called from upload														*/
-/****************************************************************************/
-char fexist(char *filespec)
-{
-#if defined(_MSC_VER)	/* Microsoft */
-
-	long	handle;
-    struct _finddata_t f;
-
-	if((handle=_findfirst(filespec,&f))==-1)
-		return(FALSE);
-	_findclose(handle);
-	if(f.attrib&_A_SUBDIR)
-		return(FALSE);
-	return(TRUE);
-
-#elif defined(__SC__)	/* Symantec */
-
-	if(findfirst(filespec,0)==NULL)
-		return(0);
-	return(1);
-
-#else					/* Borland/Watcom */
-
-	struct ffblk f;
-
-	if(findfirst(filespec,&f,0)==NULL)
-		return(1);
-	return(0);
-
-#endif
-}
-
-/****************************************************************************/
-/* Returns the length of the first file found that matches 'filespec'       */
-/* -1 if the file doesn't exist.                                            */
-/****************************************************************************/
-long flength(char *filespec)
-{
-#if defined(_MSC_VER)	/* Microsoft */
-
-	long	handle;
-    struct _finddata_t f;
-
-	if((handle=_findfirst(filespec,&f))==-1)
-		return(-1L);
-	_findclose(handle);
-	return(f.size);
-
-#elif defined(__SC__)	/* Symantec */
-
-	struct FILE *f;
-
-	if((f=findfirst(filespec,0))==NULL)
-		return(-1);
-	return(f->size);
-
-#else					/* Borland/Watcom */
-
-	struct ffblk f;
-
-	if(findfirst(filespec,&f,0)==NULL)
-#ifdef __TURBOC__	/* Borland */
-		return(f.ff_fsize);
-#else				/* Other (Watcom) */
-		return(f.size);
-#endif
-	return(-1L);
-
-#endif				
-}
-
-/****************************************************************************/
 /* Returns in 'string' a character representation of the number in l with   */
 /* commas. Maximum value of l is 4 gigabytes.								*/
 /****************************************************************************/
 char *ultoac(ulong l, char *string)
 {
 	char str[81];
-	char i,j,k;
+	int i,j,k;
 
-	ultoa(l,str,10);
+	sprintf(str,"%lu",l);
 	i=strlen(str)-1;
 	j=i/3+1+i;
 	string[j--]=0;
@@ -2244,7 +2257,7 @@ char *ultoac(ulong l, char *string)
 /****************************************************************************/
 /* Converts an ASCII Hex string into a ulong								*/
 /****************************************************************************/
-ulong ahtoul(char *str)
+ulong ahtoul(const char *str)
 {
 	ulong l,val=0;
 
@@ -2258,7 +2271,7 @@ ulong ahtoul(char *str)
 /* from NODE.DAB															*/
 /* if lockit is non-zero, locks this node's record. putnodedat() unlocks it */
 /****************************************************************************/
-void getnodedat(int number, node_t *node, char lockit)
+void xsdk_getnodedat(int number, node_t *node, char lockit)
 {
 	int count=0;
 
@@ -2273,9 +2286,11 @@ void getnodedat(int number, node_t *node, char lockit)
 			continue; }
 		if(read(nodefile,node,sizeof(node_t))==sizeof(node_t))
 			break;
-		count++; }
-	/*if(count==LOOP_NODEDAB)
-		bprintf("\7Error unlocking and reading NODE.DAB\r\n");*/
+		count++;
+		mswait(10);
+	}
+	if(count==LOOP_NODEDAB)
+		bprintf("\7Error %d %s reading node %u in node.dab\r\n", errno, lockit ? "unlocking and " : "", number+1);
 }
 
 /****************************************************************************/
@@ -2283,7 +2298,7 @@ void getnodedat(int number, node_t *node, char lockit)
 /* getnodedat(num,&node,1); must have been called before calling this func  */
 /*          NOTE: ------^   the indicates the node record has been locked   */
 /****************************************************************************/
-void putnodedat(int number, node_t node)
+void xsdk_putnodedat(int number, node_t node)
 {
 	if(nodefile<0)
 		return;
@@ -2291,8 +2306,9 @@ void putnodedat(int number, node_t node)
 	lseek(nodefile,(long)number*sizeof(node_t),SEEK_SET);
 	if(write(nodefile,&node,sizeof(node_t))!=sizeof(node_t)) {
 		unlock(nodefile,(long)number*sizeof(node_t),sizeof(node_t));
-		/*bprintf("\7Error writing NODE.DAB for node %u\r\n",number+1);*/
-		return; }
+		bprintf("\7Error %d writing node.dab for node %u\r\n", errno, number+1);
+		return;
+	}
 	unlock(nodefile,(long)number*sizeof(node_t),sizeof(node_t));
 }
 
@@ -2305,13 +2321,13 @@ void nodesync(void)
 
 	if(!ctrl_dir[0])
 		return;
-	getnodedat(node_num,&node,0);
+	xsdk_getnodedat(node_num,&node,0);
 
 	if(node.misc&NODE_MSGW)
-		getsmsg(user_number);		/* getsmsg clears MSGW flag */
+		xsdk_getsmsg(user_number);		/* getsmsg clears MSGW flag */
 
 	if(node.misc&NODE_NMSG) 		/* getnmsg clears NMSG flag */
-		getnmsg();
+		xsdk_getnmsg();
 
 	if(node.misc&NODE_INTR)
 		exit(0);
@@ -2321,7 +2337,7 @@ void nodesync(void)
 /****************************************************************************/
 /* Displays the information for node number 'number' contained in 'node'    */
 /****************************************************************************/
-void printnodedat(int number, node_t node)
+void xsdk_printnodedat(int number, node_t node)
 {
 	char hour,mer[3],tmp[256];
 	int i;
@@ -2359,7 +2375,7 @@ void printnodedat(int number, node_t node)
 			if(!node.connection)
 				bputs("Locally");
 			else if(node.connection==0xffff)
-				bprintf("via telnet");
+				bputs("via telnet");
 			else
 				bprintf("at %ubps",node.connection);
 			break;
@@ -2372,7 +2388,7 @@ void printnodedat(int number, node_t node)
 			if(node.misc&NODE_ANON && !SYSOP)
 				bputs("UNKNOWN USER");
 			else
-				bputs(username(node.useron));
+				bputs(xsdk_username(node.useron));
 			attr(GREEN);
 			bputs(" ");
 			switch(node.action) {
@@ -2421,7 +2437,7 @@ void printnodedat(int number, node_t node)
 					bprintf("retrieving from device #%d",node.aux);
 					break;
 				case NODE_DLNG:
-					bprintf("downloading");
+					bputs("downloading");
 					break;
 				case NODE_ULNG:
 					bputs("uploading");
@@ -2465,12 +2481,12 @@ void printnodedat(int number, node_t node)
 					bputs("performing sysop activities");
 					break;
 				default:
-					bputs(itoa(node.action,tmp,10));
+					bputs(ultoa(node.action,tmp,10));
 					break;  }
 			if(!node.connection)
 				bputs(" locally");
 			else if(node.connection==0xffff)
-				bprintf(" via telnet");
+				bputs(" via telnet");
 			else
 				bprintf(" at %ubps",node.connection);
 			if(node.action==NODE_DLNG) {
@@ -2528,7 +2544,7 @@ void printnodedat(int number, node_t node)
 /* Prints short messages waiting for 'usernumber', if any...				*/
 /* then deletes them.														*/
 /****************************************************************************/
-void getsmsg(int usernumber)
+void xsdk_getsmsg(int usernumber)
 {
 	char str[256], *buf;
 	int file;
@@ -2537,40 +2553,40 @@ void getsmsg(int usernumber)
 
 	if(!data_dir[0])
 		return;
-	sprintf(str,"%sMSGS\\%4.4u.MSG",data_dir,usernumber);
+	sprintf(str,"%smsgs/%4.4u.msg",data_dir,usernumber);
 	if(flength(str)<1L) {
 		return; }
 	if((file=nopen(str,O_RDWR))==-1) {
 		bprintf("\7Error opening %s for read/write access\r\n",str);
 		return; }
 	length=filelength(file);
-	if((buf=MALLOC(length+1))==NULL) {
+	if((buf=malloc(length+1))==NULL) {
 		close(file);
 		bprintf("\7Error allocating %u bytes of memory for %s\r\n",length+1,str);
 		return; }
 	if(read(file,buf,length)!=length) {
 		close(file);
-		FREE(buf);
+		free(buf);
 		bprintf("\7Error reading %u bytes from %s\r\n",length,str);
 		return; }
 	chsize(file,0L);
 	close(file);
 	buf[length]=0;
-	getnodedat(node_num,&node,0);
+	xsdk_getnodedat(node_num,&node,0);
 	if(node.action==NODE_MAIN || node.action==NODE_XFER) {
 		CRLF; }
 	if(node.misc&NODE_MSGW) {
-		getnodedat(node_num,&node,1);
+		xsdk_getnodedat(node_num,&node,1);
 		node.misc&=~NODE_MSGW;
-		putnodedat(node_num,node); }
+		xsdk_putnodedat(node_num,node); }
 	bputs(buf);
-	FREE(buf);
+	free(buf);
 }
 
 /****************************************************************************/
 /* Creates a short message for 'usernumber' than contains 'strin'			*/
 /****************************************************************************/
-void putsmsg(int usernumber, char *strin)
+void xsdk_putsmsg(int usernumber, const char *strin)
 {
 	char str[256];
 	int file,i;
@@ -2578,7 +2594,7 @@ void putsmsg(int usernumber, char *strin)
 
 	if(!data_dir[0])
 		return;
-	sprintf(str,"%sMSGS\\%4.4u.MSG",data_dir,usernumber);
+	sprintf(str,"%smsgs/%4.4u.msg",data_dir,usernumber);
 	if((file=nopen(str,O_WRONLY|O_CREAT|O_APPEND))==-1) {
 		bprintf("\7Error opening/creating %s for creat/append access\r\n",str);
 		return; }
@@ -2589,19 +2605,19 @@ void putsmsg(int usernumber, char *strin)
 		return; }
 	close(file);
 	for(i=1;i<=sys_nodes;i++) {		/* flag node if user on that msg waiting */
-		getnodedat(i,&node,0);
+		xsdk_getnodedat(i,&node,0);
 		if(node.useron==(ushort)usernumber
 			&& (node.status==NODE_INUSE || node.status==NODE_QUIET)
 			&& !(node.misc&NODE_MSGW)) {
-			getnodedat(i,&node,1);
+			xsdk_getnodedat(i,&node,1);
 			node.misc|=NODE_MSGW;
-			putnodedat(i,node); } }
+			xsdk_putnodedat(i,node); } }
 }
 
 /****************************************************************************/
 /* Prints short messages waiting for this node, if any...					*/
 /****************************************************************************/
-void getnmsg(void)
+void xsdk_getnmsg(void)
 {
 	char str[256], *buf;
 	int file;
@@ -2610,36 +2626,38 @@ void getnmsg(void)
 
 	if(!data_dir[0])
 		return;
-	getnodedat(node_num,&thisnode,1);
+	xsdk_getnodedat(node_num,&thisnode,1);
 	thisnode.misc&=~NODE_NMSG;			/* clear the NMSG flag */
-	putnodedat(node_num,thisnode);
+	xsdk_putnodedat(node_num,thisnode);
 
-	sprintf(str,"%sMSGS\\N%3.3u.MSG",data_dir,node_num);
+	sprintf(str,"%smsgs/n%3.3u.msg",data_dir,node_num);
 	if(flength(str)<1L) {
 		return; }
-
 	if((file=nopen(str,O_RDWR))==-1) {
+		printf("Couldn't open %s for read/write\r\n",str);
 		return; }
 	length=filelength(file);
-	if((buf=MALLOC(length+1))==NULL) {
+	if((buf=malloc(length+1))==NULL) {
 		close(file);
+		printf("Couldn't allocate %lu bytes for %s\r\n",length+1,str);
 		return; }
 	if(read(file,buf,length)!=length) {
 		close(file);
-		FREE(buf);
+		free(buf);
+		printf("Couldn't read %lu bytes from %s\r\n",length,str);
 		return; }
 	chsize(file,0L);
 	close(file);
 	buf[length]=0;
 
 	bputs(buf);
-	FREE(buf);
+	free(buf);
 }
 
 /****************************************************************************/
 /* Creates a short message for node 'num' than contains 'strin'             */
 /****************************************************************************/
-void putnmsg(int num, char *strin)
+void xsdk_putnmsg(int num, const char *strin)
 {
 	char str[256];
 	int file,i;
@@ -2647,20 +2665,22 @@ void putnmsg(int num, char *strin)
 
 	if(!data_dir[0])
 		return;
-	sprintf(str,"%sMSGS\\N%3.3u.MSG",data_dir,num);
+	sprintf(str,"%smsgs/n%3.3u.msg",data_dir,num);
 	if((file=nopen(str,O_WRONLY|O_CREAT|O_APPEND))==-1) {
+		printf("Couldn't open %s for append\r\n",str);
 		return; }
 	i=strlen(strin);
 	if(write(file,strin,i)!=i) {
 		close(file);
+		printf("Error writing %u bytes to %s\r\n",i,str);
 		return; }
 	close(file);
-	getnodedat(num,&node,0);
+	xsdk_getnodedat(num,&node,0);
 	if((node.status==NODE_INUSE || node.status==NODE_QUIET)
 		&& !(node.misc&NODE_NMSG)) {
-		getnodedat(num,&node,1);
+		xsdk_getnodedat(num,&node,1);
 		node.misc|=NODE_NMSG;
-		putnodedat(num,node); }
+		xsdk_putnodedat(num,node); }
 }
 
 /****************************************************************************/
@@ -2677,13 +2697,13 @@ int whos_online(char listself)
 		return(0);
 	CRLF;
 	for(j=0,i=1;i<=sys_nodes;i++) {
-		getnodedat(i,&node,0);
+		xsdk_getnodedat(i,&node,0);
 		if(i==node_num) {
 			if(listself)
-				printnodedat(i,node);
+				xsdk_printnodedat(i,node);
 			continue; }
 		if(node.status==NODE_INUSE || (SYSOP && node.status==NODE_QUIET)) {
-			printnodedat(i,node);
+			xsdk_printnodedat(i,node);
 			if(!lastnodemsg)
 				lastnodemsg=i;
 			j++; } }
@@ -2698,28 +2718,26 @@ int whos_online(char listself)
 void nodemsg(void)
 {
 	char	line[256],buf[512];
-	int 	i = -1;
+	int 	i;
 	node_t	thisnode;
 	node_t 	node;
-   
+
 	if(!ctrl_dir[0])
 		return;
 	if(strchr(user_rest,'C')) {
 		bputs("You cannot send messages.\r\n");
 		return; }
-	getnodedat(node_num,&thisnode,0);
+	xsdk_getnodedat(node_num,&thisnode,0);
 	wordwrap[0]=0;
 	if(lastnodemsg) {
-		getnodedat(lastnodemsg,&node,0);
+		xsdk_getnodedat(lastnodemsg,&node,0);
 		if(node.status!=NODE_INUSE)
 			lastnodemsg=0; }
 	if(!whos_online(0))
 		return;
 	bprintf("\r\n\1n\1gNumber of node to send message to, \1w\1hA\1n\1gll, "
 		"or \1w\1hQ\1n\1guit [%u]: \1w\1h",lastnodemsg);
-
 	i=getkeys("QA",sys_nodes);
-       
 	if(i==-1)
 		return;
 	if(i&0x8000 || !i) {
@@ -2730,7 +2748,7 @@ void nodemsg(void)
 			lastnodemsg=i; }
 		if(!i || i>sys_nodes)
 			return;
-		getnodedat(i,&node,0);
+		xsdk_getnodedat(i,&node,0);
 		if(node.status!=NODE_INUSE && !SYSOP)
 			bprintf("\r\n\1_\1w\1hNode %d is not in use.\r\n",i);
 		else if(i==node_num)
@@ -2738,7 +2756,7 @@ void nodemsg(void)
 		else if(node.misc&NODE_POFF && !SYSOP)
 			bprintf("\r\n\1r\1h\1iDon't bug %s.\1n\r\n"
 				,node.misc&NODE_ANON ? "UNKNOWN USER"
-				: username(node.useron));
+				: xsdk_username(node.useron));
 		else {
 			bputs("\1_\1y\1hMessage: ");
 			if(!getstr(line,70,K_LINE))
@@ -2748,7 +2766,7 @@ void nodemsg(void)
 				"\1w\1h\0014%s\1n\r\n"
 				,node_num
 				,thisnode.misc&NODE_ANON ? "UNKNOWN USER" : user_name,line);
-			putnmsg(i,buf); } }
+			xsdk_putnmsg(i,buf); } }
 	else if(i=='A') {
 		bputs("\1_\1y\1hMessage: ");
 		if(!getstr(line,70,K_LINE))
@@ -2761,10 +2779,10 @@ void nodemsg(void)
 		for(i=1;i<=sys_nodes;i++) {
 			if(i==node_num)
 				continue;
-			getnodedat(i,&node,0);
+			xsdk_getnodedat(i,&node,0);
 			if((node.status==NODE_INUSE || (SYSOP && node.status==NODE_QUIET))
 				&& (SYSOP || !(node.misc&NODE_POFF)))
-				putnmsg(i,buf); } }
+				xsdk_putnmsg(i,buf); } }
 
 }
 
@@ -2778,34 +2796,4 @@ void ungetkey(char ch)
 	if(keybuftop==KEY_BUFSIZE)
 		keybuftop=0;
 }
-
-#ifdef __SC__					/* Missing from Symantec RTL */
-void clrscr(void) 
-{
-        asm
-        {       mov ah,8        /*function # for "Get char with attr*/
-                xor bh,bh       /*page 0*/
-                int 10h         /*Call interrupt 10h (video)*/
-                
-                mov bh,ah       /*set "set attr" to "current attr"*/
-                mov ah,6        /*function # for "Scroll Window Up"*/
-                xor cx,cx       /*set upper row & column (0,0)*/
-                xor al,al       /*set "# lines to scroll" to 0*/
-                mov dh,119      /*set lowqer colum*/
-                int 10h         /*Call interrupt 10h*/
-                
-                mov ah,2        /*function # for "Set Cursor Position"*/
-                xor bh,bh       /*set page to 0*/
-                xor dx,dx       /*set row & colum to 0 (upper left)*/
-                int 10h         /*Call interrupt 10h*/
-        }
-        return;
-}
-
-short wherey(void)
-{
-        struct disp_t rc;
-        return(rc.cursorcol);
-}               
-#endif  /* __SC__ */
 

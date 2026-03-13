@@ -8,8 +8,9 @@
 #ifndef INTRNODEH_DEF
 #define INTRNODEH_DEF
 
-#include <windows.h>
-#include "source\doorset.h"
+#include <string>
+#include "platformDefs.h"
+#include "../trivia/doorset.h"
 
 // Constants for InputData::nType
 const short IP_NORMAL         = 0;                 // Standard hotkey input               
@@ -35,7 +36,7 @@ const short PL_OPENDOORS32    = 2;
 
 
 // General functions
-HANDLE createSlot(int);
+HANDLE createSlot(int, std::string* pSlotName = nullptr);
 HANDLE openSlot(int);
 bool sendToSlot(HANDLE, char*);
 

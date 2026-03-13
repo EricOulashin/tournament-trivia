@@ -2,53 +2,137 @@
       Copyright 2003 Evan Elias
 
       ObjectDoor -- Code used in communication between Door Clients and Door Server.
-      Current implementation uses Windows Mailslots for IPC.  Currently, the Door Server process
-      and Door Client processes must be run on the same box; this will be changed in the future
-      to support BBS's that span multiple systems.
+      Original Windows implementation uses Mailslots for IPC.
+      Linux implementation uses POSIX message queues for IPC, which provide similar
+      message-oriented semantics.
 */
 
-#include <windows.h>
-#include <string.h>
-#include <stdio.h>
-#include "e:\doors\intrnode\intrnode.h"
-#include "source\doorset.h"
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <thread>
+#include <chrono>
+#include "intrnode.h"
+#include "trivlog.h"
+#include "../trivia/doorset.h"
 
-// Creates a mailslot server for the given node, or for the gameserver if the
-// node is -1.
-HANDLE createSlot(int nNode)
+#ifndef _WIN32
+#include <sys/file.h>
+#endif
+
+
+// Creates a message queue for the given node, or for the gameserver if the
+// node is -1.  Returns a handle for reading from the queue.
+HANDLE createSlot(int nNode, std::string* pSlotName)
 {
-   char szText[80];
+	char szText[80];
+	if (nNode < 0)
+		sprintf(szText, "/%s", DOOR_INP_SLOT);
+	else
+		sprintf(szText, "/%s%d", DOOR_OUT_SLOT, nNode);
+	if (pSlotName != nullptr)
+		*pSlotName = szText;
 
-   if ( nNode < 0 )
-      sprintf(szText, "\\\\.\\mailslot\\%s", DOOR_INP_SLOT);
-   else
-      sprintf(szText, "\\\\.\\mailslot\\%s%d", DOOR_OUT_SLOT, nNode);
+	#ifdef _WIN32
+	/*
+	HANDLE CreateMailslotA(
+	  [in]           LPCSTR                lpName,
+	  [in]           DWORD                 nMaxMessageSize,
+	  [in]           DWORD                 lReadTimeout,
+	  [in, optional] LPSECURITY_ATTRIBUTES lpSecurityAttributes
+	);
+	*/
+	return CreateMailslot(szText, 240, 0, nullptr);
+	#else
+	// Use POSIX message queues as the Linux equivalent of Windows mailslots.
+	// Both are message-oriented IPC mechanisms.
+	struct mq_attr attr;
+	attr.mq_flags = 0;
+	attr.mq_maxmsg = MQ_MAX_MSGS;
+	attr.mq_msgsize = MQ_MAX_MSG_SIZE;
+	attr.mq_curmsgs = 0;
 
-   return CreateMailslot(szText, 240, 0, NULL);
+	if (nNode < 0)
+	{
+		// Server input queue.  Use a lock file to detect whether another
+		// server is already running, mirroring the Windows behavior where
+		// CreateMailslot fails if the mailslot already exists.
+		static int lockFd = -1;
+		lockFd = open("trivsrv.lock", O_CREAT | O_RDWR, 0666);
+		if (lockFd >= 0 && flock(lockFd, LOCK_EX | LOCK_NB) != 0)
+		{
+			// Another server holds the lock — exit like Windows does.
+			close(lockFd);
+			lockFd = -1;
+			return (mqd_t)-1;
+		}
+
+		// We hold the lock.  If the queue exists it is stale (from a
+		// previous crash), so it is safe to unlink and recreate it.
+		mqd_t mq = mq_open(szText, O_CREAT | O_EXCL | O_RDONLY | O_NONBLOCK, 0666, &attr);
+		if (mq == (mqd_t)-1 && errno == EEXIST)
+		{
+			mq_unlink(szText);
+			mq = mq_open(szText, O_CREAT | O_EXCL | O_RDONLY | O_NONBLOCK, 0666, &attr);
+		}
+		return mq;
+	}
+
+	// Per-node output queue.  If it already exists (stale from a crash),
+	// unlink and recreate.
+	mqd_t mq = mq_open(szText, O_CREAT | O_EXCL | O_RDONLY | O_NONBLOCK, 0666, &attr);
+	if (mq == (mqd_t)-1 && errno == EEXIST)
+	{
+		mq_unlink(szText);
+		mq = mq_open(szText, O_CREAT | O_EXCL | O_RDONLY | O_NONBLOCK, 0666, &attr);
+	}
+	return mq;
+	#endif
 }
 
 
-// Opens a pre-existing mailslot for reading.
+// Opens a pre-existing message queue for writing.
 HANDLE openSlot(int nNode)
 {
-   char szText[80];
+	char szText[80];
+	if ( nNode < 0 )
+	  sprintf(szText, "/%s", DOOR_INP_SLOT);
+	else
+	  sprintf(szText, "/%s%d", DOOR_OUT_SLOT, nNode);
 
-   if ( nNode < 0 )
-      sprintf(szText, "\\\\.\\mailslot\\%s", DOOR_INP_SLOT);
-   else
-      sprintf(szText, "\\\\.\\mailslot\\%s%d", DOOR_OUT_SLOT, nNode);
-   
-   return CreateFile(szText, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, (LPSECURITY_ATTRIBUTES) NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, (HANDLE) NULL); 
-
+	#ifdef _WIN32
+	return CreateFile(szText, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, (LPSECURITY_ATTRIBUTES) nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, (HANDLE) nullptr);
+	#else
+	return mq_open(szText, O_WRONLY | O_NONBLOCK);
+	#endif
 }
 
 
-// Writes text to a given slot.
+// Writes text to a given slot/queue.
 bool sendToSlot(HANDLE hSlot, char* szInput)
 {
-   DWORD cbWritten; 
- 
-   return WriteFile(hSlot, szInput,  strlen(szInput) + 1, &cbWritten, NULL); 
+	DWORD cbWritten;
+
+	#ifdef _WIN32
+	return WriteFile(hSlot, szInput,  strlen(szInput) + 1, &cbWritten, nullptr) == TRUE;
+	#else
+	// Non-blocking send with retry.  Windows mailslots don't block on write,
+	// so we match that behavior.  If the queue is full (EAGAIN), wait briefly
+	// for the reader to drain it and retry.
+	for (int retries = 0; retries < 200; retries++)
+	{
+		if (mq_send(hSlot, szInput, strlen(szInput) + 1, 0) == 0)
+			return true;
+		if (errno != EAGAIN)
+		{
+			trivlog("trivsrv: mq_send error %d\n", errno);
+			return false;
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+	trivlog("trivsrv: mq_send exhausted retries\n");
+	return false;
+	#endif
 }
 
 
@@ -63,10 +147,10 @@ char* InputData::toString(char* szBuffer)
 InputData::InputData(char* szMsg)
 {
    nFrom = atoi( strtok(szMsg, " ") );
-   nType = atoi( strtok(NULL, " ") );
+   nType = atoi( strtok(nullptr, " ") );
    szMessage[0] = '\0';
-   char* szTemp = strtok(NULL, "");
-   if ( szTemp != NULL )
+   char* szTemp = strtok(nullptr, "");
+   if ( szTemp != nullptr )
       strcpy( szMessage, szTemp );
 }
 
@@ -86,15 +170,15 @@ char* OutputData::toString(char* szBuffer)
 OutputData::OutputData(char* szMsg)
 {
    nType = atoi( strtok(szMsg, " ") );
-   nColor = atoi( strtok(NULL, " ") );
-   nHp = atoi( strtok(NULL, " ") );
-   nSp = atoi( strtok(NULL, " ") );
-   nMf = atoi( strtok(NULL, " ") );
-   nEnemyPercent = atoi( strtok(NULL, " ") );
-   nHpColor = atoi( strtok(NULL, " ") );
+   nColor = atoi( strtok(nullptr, " ") );
+   nHp = atoi( strtok(nullptr, " ") );
+   nSp = atoi( strtok(nullptr, " ") );
+   nMf = atoi( strtok(nullptr, " ") );
+   nEnemyPercent = atoi( strtok(nullptr, " ") );
+   nHpColor = atoi( strtok(nullptr, " ") );
    szMessage[0] = '\0';
-   char* szTemp = strtok(NULL, "");
-   if ( szTemp != NULL )
+   char* szTemp = strtok(nullptr, "");
+   if ( szTemp != nullptr )
       strcpy( szMessage, szTemp );
 }
 
@@ -114,56 +198,52 @@ OutputData::OutputData()
 QueueNode::QueueNode(InputData idMessage)
 {
    id = idMessage;
-   qnNext = NULL;
+   qnNext = nullptr;
 }
 
 
 MessageQueue::MessageQueue()
 {
-   qnTop = NULL;
+   qnTop = nullptr;
 }
 
 // Removes the Input message at the top of the input queue.
 InputData MessageQueue::dequeue()
 {
-   if ( isEmpty() )
-      return NULL;
+	if ( isEmpty() )
+		return InputData();
 
-   InputData idReturn = qnTop->id;
-   QueueNode* qnNewTop = qnTop->qnNext;
-   delete qnTop;
-   qnTop = qnNewTop;
-   return idReturn;
+	InputData idReturn = qnTop->id;
+	QueueNode* qnNewTop = qnTop->qnNext;
+	delete qnTop;
+	qnTop = qnNewTop;
+	return idReturn;
 }
 
 
-// Adds an input message to the top of an input queue.
+// Adds an input message to the end of an input queue.
 void MessageQueue::enqueue(InputData idMessage)
 {
-   if ( isEmpty() )
-      {
-      qnTop = new QueueNode(idMessage);
-      return;
-      }
+	if ( isEmpty() )
+	{
+		qnTop = new QueueNode(idMessage);
+		return;
+	}
 
-   QueueNode* qnCurrent = qnTop;
+	QueueNode* qnCurrent = qnTop;
 
-   while ( qnCurrent->qnNext != NULL )
-      {
-      qnCurrent = qnCurrent->qnNext;
-      }
+	while ( qnCurrent->qnNext != nullptr )
+	{
+		qnCurrent = qnCurrent->qnNext;
+	}
 
-   qnCurrent->qnNext = new QueueNode(idMessage);
+	qnCurrent->qnNext = new QueueNode(idMessage);
 }
 
 
 bool MessageQueue::isEmpty()
 {
-   if ( qnTop == NULL )
-      return true;
-   else
-      return false;
+	return qnTop == nullptr;
 }
-
 
 

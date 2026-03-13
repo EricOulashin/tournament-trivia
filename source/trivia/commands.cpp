@@ -1,7 +1,7 @@
 #include <stdio.h>
-#include "e:\doors\intrnode\gamesrv.h"
-#include "source\trivia.h"
-#include "source\commands.h"
+#include "../intrnode/gamesrv.h"
+#include "trivia.h"
+#include "commands.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Static Command members
@@ -22,21 +22,21 @@ void Command::init(TriviaServer* aServer)
    nMaxCommands = 15;
 
    myCommands = new Command*[nMaxCommands];
-   myCommands[nCommandCount++] = new PlayerListCommand("who");
-   myCommands[nCommandCount++] = new PlayerListCommand("players", "pl");
-   myCommands[nCommandCount++] = new SkipCommand("skip", "next");
-   myCommands[nCommandCount++] = new HelpCommand("help");
-   myCommands[nCommandCount++] = new TellCommand("whisper", "tell");
-   myCommands[nCommandCount++] = new SubmitCommand("submit", "sub");
-   myCommands[nCommandCount++] = new CorrectionCommand("correction", "correct");
-   myCommands[nCommandCount++] = new ScoresCommand("scores", "sc");
-   myCommands[nCommandCount++] = new ScoresCommand("topten", "top");
-   myCommands[nCommandCount++] = new ExitCommand("exit", "x");
-   myCommands[nCommandCount++] = new ExitCommand("quit");
-   myCommands[nCommandCount++] = new SysopCommand("sysop");
-   myCommands[nCommandCount++] = new SysopCommand("configure", "config");
-   myCommands[nCommandCount++] = new MenuCommand("menu", "?");
-   myCommands[nCommandCount++] = new CheckRegCommand(";checkreg");
+   myCommands[nCommandCount++] = new PlayerListCommand((char*)"who");
+   myCommands[nCommandCount++] = new PlayerListCommand((char*)"players", (char*)"pl");
+   myCommands[nCommandCount++] = new SkipCommand((char*)"skip", (char*)"next");
+   myCommands[nCommandCount++] = new HelpCommand((char*)"help");
+   myCommands[nCommandCount++] = new TellCommand((char*)"whisper", (char*)"tell");
+   myCommands[nCommandCount++] = new SubmitCommand((char*)"submit", (char*)"sub");
+   myCommands[nCommandCount++] = new CorrectionCommand((char*)"correction", (char*)"correct");
+   myCommands[nCommandCount++] = new ScoresCommand((char*)"scores", (char*)"sc");
+   myCommands[nCommandCount++] = new ScoresCommand((char*)"topten", (char*)"top");
+   myCommands[nCommandCount++] = new ExitCommand((char*)"exit", (char*)"x");
+   myCommands[nCommandCount++] = new ExitCommand((char*)"quit");
+   myCommands[nCommandCount++] = new SysopCommand((char*)"sysop");
+   myCommands[nCommandCount++] = new SysopCommand((char*)"configure", (char*)"config");
+   myCommands[nCommandCount++] = new MenuCommand((char*)"menu", (char*)"?");
+   myCommands[nCommandCount++] = new CheckRegCommand((char*)";checkreg");
 
 }
 
@@ -95,7 +95,7 @@ void SkipCommand::doEffect(char* szParam, Player* pl)
    // Can only request a skip once.
    if ( pl->bWantedSkip )
       {
-      pl->print("You already requested that this question be skipped!", LRED);
+      pl->print((char*)"You already requested that this question be skipped!", LRED);
       return;
       }
 
@@ -120,9 +120,9 @@ void HelpCommand::doEffect(char* szParam, Player* pl)
 {
    pl->newline();
    if ( szParam == NULL )
-      pl->displayHlp("user.hlp", "instructions");
+      pl->displayHlp((char*)"user.hlp", (char*)"instructions");
    else
-      pl->displayHlp("user.hlp", szParam, "Sorry, there is no help entry for that topic.", true);
+      pl->displayHlp((char*)"user.hlp", szParam, (char*)"Sorry, there is no help entry for that topic.", true);
    pl->newline();
 }
 
@@ -132,7 +132,7 @@ void HelpCommand::doEffect(char* szParam, Player* pl)
 void TellCommand::doEffect(char* szIntactParam, Player* pl)
 {
    char szParamCopy[240], * szUsedName, szLowerName[80], szText[240];
-   char* szError = "Syntax:   TELL <user> <message>";
+   char* szError = (char*)"Syntax:   TELL <user> <message>";
    short nBestMatchNode = -1, nBestMatchCount = -1, nBestDupe = -1;
    short nCurPos, nWordEnd;
    bool bDoneLoop;
@@ -239,7 +239,7 @@ void TellCommand::doEffect(char* szIntactParam, Player* pl)
    // If best match was present in multiple player names, abort
    if ( nBestDupe == nBestMatchCount ) 
       {
-      pl->print("Multiple players match that name; please be more specific.", LRED);
+      pl->print((char*)"Multiple players match that name; please be more specific.", LRED);
       return;
       }
      
@@ -254,7 +254,7 @@ void TellCommand::doEffect(char* szIntactParam, Player* pl)
 #pragma argsused
 void SubmitCommand::doEffect(char* szParam, Player* pl)
 {
-   pl->displayHlp("user.hlp", "submission");
+   pl->displayHlp((char*)"user.hlp", (char*)"submission");
 }
 
 
@@ -276,14 +276,14 @@ void CorrectionCommand::doEffect(char* szParam, Player* pl)
             strcpy(szHeader, "CURRENT QUESTION");
 
          pl->newline();
-         pl->underline(szHeader, "Ä", LCYAN, BLUE);
+         pl->underline(szHeader, (char*)"ï¿½", LCYAN, BLUE);
 
          sprintf(szText, "  %s question %d", szFileName, nLine);
          pl->print(szText, LWHITE, 0);
          sprintf(szText, "version %s", szFileName);
-         pl->displayHlp("correct.hlp", szText);
-         pl->print("\r\n  Report at: ", LWHITE, 0);
-         pl->displayHlp("correct.hlp", szFileName, "http://trivia.doormud.com/correct.html");
+         pl->displayHlp((char*)"correct.hlp", szText);
+         pl->print((char*)"\r\n  Report at: ", LWHITE, 0);
+         pl->displayHlp((char*)"correct.hlp", szFileName, (char*)"http://trivia.doormud.com/correct.html");
          }
       }
 
@@ -311,7 +311,7 @@ void SysopCommand::doEffect(char* szParam, Player* pl)
    if ( pl->bSysop )
       GameThread::launch(SysopThread::factory(pl, myServer));
    else
-      pl->print("\r\nYou do not have sysop access or local-mode access.", LRED, 2);
+      pl->print((char*)"\r\nYou do not have sysop access or local-mode access.", LRED, 2);
 }
 
 
@@ -319,7 +319,7 @@ void SysopCommand::doEffect(char* szParam, Player* pl)
 void MenuCommand::doEffect(char* szParam, Player* pl)
 {
   pl->newline();
-  pl->displayScreen("menu");
+  pl->displayScreen((char*)"menu");
   pl->newline();
 }
 

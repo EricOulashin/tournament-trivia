@@ -1,7 +1,13 @@
-#include <stdio.h>
-#include <fstream.h>
-#include "e:\doors\intrnode\gamesrv.h"
-#include "source\trivia.h"
+//#include <stdio.h>
+#include <cstdio>
+//#include <fstream.h>
+#include <fstream>
+#include "../intrnode/gamesrv.h"
+#include "trivia.h"
+using std::fstream;
+using std::ifstream;
+using std::ofstream;
+using std::ios;
 
 PlayerRecord PlayerRecord::rankedRecords[10];
 extern TriviaServer* gsGame;
@@ -32,8 +38,8 @@ Player::Player(short nNode, char* szInfo) : GameNode(nNode, szInfo)
       if ( !fsPlayerFile )
          break;
             
-      // If real name matches, grab their score and any other stats
-      if ( strcmpi(aRecord.szName, szRealName) == 0 )
+      // If alias matches, grab their score and any other stats
+      if ( strcmpi(aRecord.szName, szAlias) == 0 )
          {
          bFound = true;
          nScore = aRecord.nScore;
@@ -53,7 +59,7 @@ Player::Player(short nNode, char* szInfo) : GameNode(nNode, szInfo)
    if ( !bFound )
       {
       nPlayerNumber = nPlayerCounter;
-      strcpy(aRecord.szName, szRealName);
+      strcpy(aRecord.szName, szAlias);
       strcpy(aRecord.szAlias, szAlias);
       aRecord.nScore = 0;
       aRecord.bSavedSysop = bSysop;
@@ -70,16 +76,13 @@ Player::Player(short nNode, char* szInfo) : GameNode(nNode, szInfo)
 // Destructor:  Save the player to disk, if it is valid.
 Player::~Player()
 {
-   char szText[80];
-   
    if ( nPlayerNumber < 0 )
       return;
-   
+
    save();
    bInGame = false;
-   sprintf(szText, ">>> %s has left the game!", szAlias);
-   gsGame->printAll(szText, MAGENTA);   
-   
+   // Departure notification is handled by the server's IP_FINISHED
+   // handler in gamesrv.cpp, so we don't broadcast from the destructor.
 }
 
 
@@ -88,22 +91,24 @@ void Player::save()
 {
 	ofstream ofsPlayerFile;
 
-   if ( nPlayerNumber < 0 )
-      return;
+	if ( nPlayerNumber < 0 )
+		return;
 
-   PlayerRecord myRecord(szRealName, szAlias, nScore, bSysop);
+	PlayerRecord myRecord(szAlias, szAlias, nScore, bSysop);
 	ofsPlayerFile.open("player.dat", ios::out | ios::binary | ios::ate);
 
-   if ( !ofsPlayerFile )
-      {
-      MessageBox(NULL, "Unable to write to player file!", "Trivia", MB_ICONSTOP | MB_OK | MB_TASKMODAL);
-      return;
-      }
+	if ( !ofsPlayerFile )
+	{
+		#ifdef _WIN32
+		MessageBox(NULL, "Unable to write to player file!", "Trivia", MB_ICONSTOP | MB_OK | MB_TASKMODAL);
+		#endif
+		return;
+	}
 
-   ofsPlayerFile.seekp(nPlayerNumber * sizeof(PlayerRecord));
-   ofsPlayerFile.write( (char*)&myRecord, sizeof(PlayerRecord) );
-   ofsPlayerFile.flush();
-   ofsPlayerFile.close();
+	ofsPlayerFile.seekp(nPlayerNumber * sizeof(PlayerRecord));
+	ofsPlayerFile.write( (char*)&myRecord, sizeof(PlayerRecord) );
+	ofsPlayerFile.flush();
+	ofsPlayerFile.close();
 }
 
 // Fills an output message with the player's current stats, so that the player's
@@ -169,7 +174,7 @@ PlayerRecord* PlayerRecord::getRankedRecords()
    short n = 0, nCurrentScore;
    ifstream fsPlayerFile;
 
-   long lFileLength = getFileLength("player.dat");
+   long lFileLength = getFileLength((char*)"player.dat");
    short nEntries = short(lFileLength / sizeof(PlayerRecord));
 
    // Only re-rank if the question has changed since the last ranking.

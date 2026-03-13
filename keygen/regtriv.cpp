@@ -1,21 +1,60 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
+
+#ifdef LINUX
+#include <fstream>
+using namespace std;
+#else
 #include <fstream.h>
+#endif
 
 unsigned char encode(unsigned char, long);
 unsigned char decode(unsigned char, long);
 short getRegName(char*, unsigned char*, short);
 
+#ifdef LINUX
+// Linux replacement for strrev (not available in glibc)
+char* strrev(char* str)
+{
+   if (!str) return str;
+   int len = strlen(str);
+   for (int i = 0; i < len / 2; i++)
+      {
+      char tmp = str[i];
+      str[i] = str[len - 1 - i];
+      str[len - 1 - i] = tmp;
+      }
+   return str;
+}
+#endif
+
+#ifdef LINUX
+int main()
+#else
 void main()
+#endif
 {
    char szName[80];
    unsigned char szHolder[500], nSpaceCount = 0, nHighestVal = 0, nTot = 0;
    long lPos = 0, lToSkip;
 
+#ifdef LINUX
+   srand(time(NULL));
+#else
    randomize();
+#endif
    printf("Enter Sysop name   >");
+#ifdef LINUX
+   fgets(szName, sizeof(szName), stdin);
+   // Remove trailing newline from fgets
+   size_t szNameLen = strlen(szName);
+   if (szNameLen > 0 && szName[szNameLen - 1] == '\n')
+      szName[szNameLen - 1] = '\0';
+#else
    gets(szName);
+#endif
 
    if ( strlen(szName) < 3 )
       exit(0);
@@ -36,14 +75,18 @@ void main()
    szHolder[lPos++] = encode(nHighestVal, 4);
    szHolder[lPos++] = encode(strlen(szName), 5);
    szHolder[lPos++] = encode(nTot, 6);
-   
+
    strrev(szName);
-   
+
    for ( short n = 0; n < strlen(szName); n++ )
       {
       szHolder[lPos] = encode(szName[n], lPos);
       lPos++;
+#ifdef LINUX
+      szHolder[lPos] = rand() % 204 + 50;
+#else
       szHolder[lPos] = random(204) + 50;
+#endif
       lToSkip = szHolder[lPos] / 50;
       szHolder[lPos] = ~szHolder[lPos];
       lPos++;
@@ -51,7 +94,11 @@ void main()
       unsigned char nSum = 7;
       for ( short k = 0; k < lToSkip; k++ )
          {
+#ifdef LINUX
+         szHolder[lPos] = rand() % 250;
+#else
          szHolder[lPos] = random(250);
+#endif
          nSum += szHolder[lPos]/6;
          lPos++;
          }
@@ -59,14 +106,30 @@ void main()
       }
 
    fstream myFile;
+#ifdef LINUX
+   myFile.open("ttreg.dat", ios::binary | ios::out | ios::trunc );
+#else
    myFile.open("e:\\ttreg.dat", ios::binary | ios::out | ios::trunc );
-   myFile.write(szHolder, lPos);
+#endif
+   myFile.write((char*)szHolder, lPos);
    myFile.close();
 
+#ifdef LINUX
+   myFile.open("regs.log", ios::out | ios::app);
+#else
    myFile.open("e:\\doors\\trivia\\regs.log", ios::out | ios::app);
+#endif
    myFile.write(strrev(szName), strlen(szName));
    char szText[120], szFullDate[12];
+#ifdef LINUX
+   {
+      time_t t = time(NULL);
+      struct tm* tm_info = localtime(&t);
+      strftime(szFullDate, sizeof(szFullDate), "%m/%d/%y", tm_info);
+   }
+#else
    _strdate(szFullDate);
+#endif
    sprintf(szText, "\n  Registered on %s\n", szFullDate);
    myFile.write(szText, strlen(szText));
    sprintf(szText, "  File size: %ld\n  First ten bytes: ", lPos);
@@ -82,6 +145,10 @@ void main()
    char szCheckName[80];
    short nStatus = getRegName(szCheckName, szHolder, lPos);
    printf("  -> Reg status: %d; %s.\n\n", nStatus, szCheckName);
+
+#ifdef LINUX
+   return 0;
+#endif
 }
 
 
@@ -106,13 +173,13 @@ short getRegName(char* szNameBuffer, unsigned char* szHolder, short nLength)
 {
    unsigned char nLen1, nLen2, nHighVal, nChar2, nLastChar, nSpaceCount, nTot;
    long lPos = 0;
-   class BadFile 
-      { 
+   class BadFile
+      {
       public:
          short nReason, nTwo, nThree;
          BadFile(short n1, short n2=0, short n3=0) {nReason = n1;nTwo=n2;nThree=n3;}
       };
-   
+
    try
       {
       nLen1 = decode(szHolder[lPos++], 0);
@@ -122,10 +189,10 @@ short getRegName(char* szNameBuffer, unsigned char* szHolder, short nLength)
       nHighVal = decode(szHolder[lPos++], 4);
       nLen2 = decode(szHolder[lPos++], 5);
       nTot = decode(szHolder[lPos++], 6);
-   
+
       if ( nLen1 != nLen2 )
          throw BadFile(1, nLen1, nLen2);
-   
+
       short n = 0;
       while ( lPos < nLength && n < 80 )
          {
@@ -144,7 +211,7 @@ short getRegName(char* szNameBuffer, unsigned char* szHolder, short nLength)
 
       szNameBuffer[n] = '\0';
       strrev(szNameBuffer);
-         
+
       short nMyHigh = 0;
       for ( short n = 0; n < strlen(szNameBuffer); n++ )
          {
@@ -167,8 +234,8 @@ short getRegName(char* szNameBuffer, unsigned char* szHolder, short nLength)
          throw BadFile(6, szNameBuffer[strlen(szNameBuffer)-1], nLastChar);
       if ( nTot != 0 )
          throw BadFile(8, nTot);
-      
-      return 1;      
+
+      return 1;
       }
 
    catch ( BadFile bf )

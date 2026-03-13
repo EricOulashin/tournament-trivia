@@ -5,37 +5,70 @@
 */
 
 
-#include <string.h>
-#include "source\doorset.h"
-#include "e:\doors\intrnode\door.h"
-#include "e:\doors\intrnode\intrnode.h"
+//#include <string.h>
+#include <cstring>
+#include <string>
+#include <filesystem>
+#include <thread>
+//#include "../intrnode/platformDefs.h"
+#include "../trivia/doorset.h"
+#ifndef LPSTR
+#define LPSTR char*
+#endif
+#include "../intrnode/door.h"
+#include "../intrnode/intrnode.h"
+#include "../intrnode/platformDefs.h"
 
 void beforeExit();
 bool correctDirectory();
 
+#ifdef _WIN32
+// Windows: store command line for correctDirectory()
+#else
+// Linux: store argc/argv for correctDirectory() and od_parse_cmd_line()
+static int gArgc;
+static char** gArgv;
+#endif
 
 // Called upon door startup, to initialize the door depending on the doorkit's needs.
+#ifdef _WIN32
 void startup(LPSTR lpszCmdLine)
+#else
+void startup(int argc, char* argv[])
+#endif
 {
-   char* szCopyright = DOOR_COPYRIGHT;
+	#ifndef _WIN32
+	gArgc = argc;
+	gArgv = argv;
+	#endif
 
-   strcpy(od_registered_to, "Evan Elias");
-   od_registration_key = 2469396480L;
-   od_control.od_nocopyright = TRUE;
-   strcpy(od_control.od_prog_copyright, szCopyright);
-   strcpy(od_control.od_prog_name, DOOR_NAME);
-   strcpy(od_control.od_prog_version, DOOR_VERSION);
-   od_control.od_cmd_show = SW_MINIMIZE;
-   od_parse_cmd_line(lpszCmdLine);
-   if ( od_control.od_force_local == TRUE )
-      od_control.od_cmd_show = SW_RESTORE;
-   od_init();
-   od_control.od_clear_on_exit = FALSE;
-   od_control.od_inactivity = 300;
-   od_control.od_help_text2 = (char *)"                  Doorgame - (c) 2003 Evan Elias                               ";
+	char* szCopyright = DOOR_COPYRIGHT;
 
-   if ( !correctDirectory() )
-      platExit(0);
+	strcpy(od_registered_to, "Evan Elias");
+	od_registration_key = 2469396480L;
+	od_control.od_nocopyright = TRUE;
+	strcpy(od_control.od_prog_copyright, szCopyright);
+	strcpy(od_control.od_prog_name, DOOR_NAME);
+	strcpy(od_control.od_prog_version, DOOR_VERSION);
+	#ifdef _WIN32
+	od_control.od_cmd_show = SW_MINIMIZE;
+	od_parse_cmd_line(lpszCmdLine);
+	#else
+	od_parse_cmd_line(argc, argv);
+	#endif
+	if ( od_control.od_force_local == TRUE )
+	{
+		#ifdef _WIN32
+		od_control.od_cmd_show = SW_RESTORE;
+		#endif
+	}
+	od_init();
+	od_control.od_clear_on_exit = FALSE;
+	od_control.od_inactivity = 300;
+	od_control.od_help_text2 = (char *)"                  Doorgame - (c) 2003 Evan Elias                               ";
+
+	if ( !correctDirectory() )
+		platExit(0);
 }
 
 
@@ -53,67 +86,79 @@ void setupExitFunction()
 // elsewhere, so no need to create this function in a non-OpenDoors plat*.cpp)
 bool correctDirectory()
 {
-   char* szCommandLine;
-   char szExeDir[150], szErrorMsg[250];
-   bool bFoundError = false;
+	char* szCommandLine;
+	char szExeDir[150], szErrorMsg[250];
+	bool bFoundError = false;
+	char pathSep;
 
-   szCommandLine = GetCommandLine();
-   
-   // Unable to handle command lines over 149 chars.
-   if ( strlen(szCommandLine) > 149 )
-      {
-      bFoundError = true;
-      strcpy(szExeDir, "<too long>");
-      }
-      
-   else
-      {
-      // If command line begins with a quote mark, skip the quote mark; otherwise, use as is.
-      if ( szCommandLine[0] == '\"' )
-         strcpy(szExeDir, szCommandLine+1);
-      else
-         strcpy(szExeDir, szCommandLine);
+	#ifdef _WIN32
+	szCommandLine = GetCommandLine();
+	pathSep = '\\';
+	#else
+	szCommandLine = gArgv[0];
+	pathSep = '/';
+	#endif
 
-      // Strip spaces from the command line
-      for ( short n = 0; n < strlen(szExeDir); n++ )
-         {
-         if ( szExeDir[n] == ' ' )
-            szExeDir[n] = '\0';
-         }
+	// Unable to handle command lines over 149 chars.
+	if ( strlen(szCommandLine) > 149 )
+	{
+		bFoundError = true;
+		strcpy(szExeDir, "<too long>");
+	}
+	else
+	{
+		// If command line begins with a quote mark, skip the quote mark; otherwise, use as is.
+		if ( szCommandLine[0] == '\"' )
+			strcpy(szExeDir, szCommandLine+1);
+		else
+			strcpy(szExeDir, szCommandLine);
 
-      // Assume current directory is door's directory if no path given ( usually Win NT/2k/XP)
-      if ( strchr(szExeDir, '\\') == NULL && strchr(szExeDir, ':') == NULL )
-         return true;
+		// Strip spaces from the command line (Windows: full command line; Linux: just argv[0])
+		#ifdef _WIN32
+		for ( short n = 0; n < (short)strlen(szExeDir); n++ )
+		{
+			if ( szExeDir[n] == ' ' )
+				szExeDir[n] = '\0';
+		}
+		#endif
 
-      // Remove exe program name (done by finding last backslash)
-      while ( strlen(szExeDir) > 2 && szExeDir[strlen(szExeDir) - 1] != '\\' )
-         {
-         szExeDir[strlen(szExeDir) - 1] = '\0';
-         }
+		// Assume current directory is door's directory if no path given
+		if ( strchr(szExeDir, pathSep) == NULL
+		#ifdef _WIN32
+			&& strchr(szExeDir, ':') == NULL
+		#endif
+		)
+			return true;
 
-      // Remove trailing backslash.
-      if ( strlen(szExeDir) <= 2 )
-         bFoundError = true;
-      else
-         szExeDir[strlen(szExeDir) - 1] = '\0';         
-      }
+		// Remove exe program name (done by finding last path separator)
+		while ( strlen(szExeDir) > 2 && szExeDir[strlen(szExeDir) - 1] != pathSep )
+		{
+			szExeDir[strlen(szExeDir) - 1] = '\0';
+		}
 
-   if ( !bFoundError )
-      {
-      if ( SetCurrentDirectory(szExeDir) == FALSE )
-         bFoundError = true;
-      }
+		// Remove trailing path separator.
+		if ( strlen(szExeDir) <= 2 )
+			bFoundError = true;
+		else
+			szExeDir[strlen(szExeDir) - 1] = '\0';
+	}
 
-   if ( bFoundError )
-      {
-      sprintf(szErrorMsg, "Critical error: Door directory %s is invalid.  Please e-mail door author to report!", szExeDir);
-      MessageBox(NULL, szErrorMsg, "Door problem!", MB_ICONSTOP | MB_OK | MB_TASKMODAL);
-      return false;
-      }
+	if ( !bFoundError )
+	{
+		std::filesystem::current_path(szExeDir);
+	}
 
-   return true;
+	if ( bFoundError )
+	{
+		sprintf(szErrorMsg, "Critical error: Door directory %s is invalid.  Please e-mail door author to report!", szExeDir);
+		#ifdef _WIN32
+		MessageBox(NULL, szErrorMsg, "Door problem!", MB_ICONSTOP | MB_OK | MB_TASKMODAL);
+		#endif
+		return false;
+	}
+
+	return true;
 }
-
 
 // Gets an input key, if one is present; returns 0 if no input key waiting.
 char inputKey()
@@ -124,20 +169,25 @@ char inputKey()
    if ( (unsigned char)cKey == 255 )
       {
       // Ignore following char (indicating command code)
-      Sleep(50);
+      //Sleep(50);
+	  std::this_thread::sleep_for(std::chrono::milliseconds(50));
       cKey = od_get_key(FALSE);
 
       // If an option, ignore option code
       if ( (unsigned char)cKey > 250 && (unsigned char)cKey < 255 )
          {
-         Sleep(50);
+         //Sleep(50);
+		 std::this_thread::sleep_for(std::chrono::milliseconds(50));
          od_get_key(FALSE);
          }
       cKey = 0;
       }
 
    if ( cKey == 0 )
-      Sleep(50);
+   {
+      //Sleep(50);
+	  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+   }
    return cKey;
 }
 
@@ -157,7 +207,7 @@ void local(char* szString, short nColor, short nNewLines)
 
    for(n = 0; n < nNewLines; n++)
       {
-      od_disp_str("\r\n");
+      od_disp_str((char*)"\r\n");
       }
 }
 
@@ -165,7 +215,7 @@ void local(char* szString, short nColor, short nNewLines)
 void newline()
 {
    od_set_attrib(7);
-   od_disp_str("\r\n");
+   od_disp_str((char*)"\r\n");
 }
 
 
@@ -244,7 +294,7 @@ void checkTimeLeft()
 // Displays a hit-any-key type prompt and waits for a key.
 void pausePrompt(short nClear, short nCenter)
 {
-   char* szText = "[Hit any key to continue]";
+   char* szText = (char*)"[Hit any key to continue]";
 
    if ( nCenter != 1 )
       local(szText, LWHITE, 0);

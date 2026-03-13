@@ -7,8 +7,8 @@
 #ifndef DOORHDEF
 #define DOORHDEF
 
-// Determine the platforms (Windows vs DOS, and XSDK vs OpenDoors)
-#if defined(WIN32) || defined(__WIN32__)
+// Determine the platforms (Windows vs Linux vs DOS, and XSDK vs OpenDoors)
+#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
 #define WINDOOR
 #ifdef __CONSOLE__
 #define XSDK32
@@ -18,19 +18,33 @@
 #else
 #define OD32
 //#pragma message 32-bit w/ OpenDoors
-#include "e:\doors\intrnode\opendoor.h"
-#include <stdio.h>
-#include <time.h>
+#include "../intrnode/opendoor.h"
 #endif
+
+#elif defined(LINUX)
+// Linux platform
+#ifdef __CONSOLE__
+#define XSDK32
+#define LIMITED_XSDK
+#include "xsdk.h"
+#else
+#define OD32
+#include "../intrnode/opendoor.h"
+#endif
+#include <cstdio>
+#include <ctime>
 
 #else
+// DOS platform
 #define OD16
 #define DOSDOOR
-//#pragma message 16-bit w/ OpenDoors
-#include "e:\doors\intrnode\opendoor.h"
+#ifndef LPSTR
+#define LPSTR char*
+#endif
+#include "opendoor.h"
 #endif
 
-#ifndef __CONIO_H
+#if !defined(__CONIO_H) && !defined(__COLORS)
 const short    BLACK = 0;
 const short    BLUE = 1;
 const short    GREEN = 2;
@@ -54,7 +68,11 @@ const short 	 LMAGENTA = 13;
 // Door-related functions found in plat*.cpp
 
 #ifdef OD32
+#ifndef LINUX
 void startup(LPSTR);
+#else
+void startup(int, char*[]);
+#endif
 #else
 void startup(int, char*[]);
 #endif
@@ -64,7 +82,7 @@ char inputKey();
 void local(char *, short=7, short=1);
 void newline();
 void printChar(char);
-void center(char *, short=7, short=1); 
+void center(char *, short=7, short=1);
 void showAnsi(char *);
 void backspace(short);
 void pausePrompt(short=0, short=0);

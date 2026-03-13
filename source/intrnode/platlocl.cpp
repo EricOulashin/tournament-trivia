@@ -1,8 +1,12 @@
-#include <fstream.h>
+#include <fstream>
+#include <string>
+#ifdef _WIN32
 #include <conio.h>
-#include <string.h>
-#include "source\door.h"
-#include "source\intrnode.h"
+#else
+#include "../trivia/conio_linux.h"
+#endif
+#include "../intrnode/door.h"
+#include "../intrnode/intrnode.h"
 
 short nMyNode = 0;
 char szMyUsername[30];
@@ -14,7 +18,6 @@ void startup(int argc, char *argv[])
    //--> fix
 
 }
-
 
 char inputKey()
 {
@@ -33,6 +36,7 @@ char inputKey()
 }
 
 
+
 // Displays a string for this instance/node of the door.
 void local(char* szString, short nColor, short nNewLines, short nBackColor)
 {
@@ -42,23 +46,22 @@ void local(char* szString, short nColor, short nNewLines, short nBackColor)
    textbackground(nBackColor);
 
    if ( szString != NULL )
-      cprintf("%s", szString);
+      cprintf((char*)"%s", szString);
 
    for(n = 0; n < nNewLines; n++)
       {
       textcolor(7);
       textbackground(0);
       if (nColor != 7 ) 
-         cprintf(" \r\n");
+         cprintf((char*)" \r\n");
       else
-         cprintf("\r\n");
+         cprintf((char*)"\r\n");
       }
 }
 
-
 void newline()
 {
-   cprintf("\r\n");
+   cprintf((char*)"\r\n");
 }
 
 
@@ -91,7 +94,7 @@ void center(char* szText, short nColor, short nNewlines, short nBackColor)
 void showAnsi(char *szFileName)
 {
    char szBuffer[100];
-   ifstream ifsMyFile(szFileName);
+   std::ifstream ifsMyFile(szFileName);
 
    while ( ifsMyFile )
       {
@@ -129,7 +132,7 @@ void checkTimeLeft()
 
 void pausePrompt(short nClear, short nCenter)
 {
-   char* szText = "[Hit any key to continue]";
+   char* szText = (char*)"[Hit any key to continue]";
 
    if ( nCenter != 1 )
       local(szText, LWHITE, 0);
@@ -141,7 +144,7 @@ void pausePrompt(short nClear, short nCenter)
    if (nClear == 1)
       clearScreen();
    else
-      local(" ");
+      local((char*)" ");
 }
 
 

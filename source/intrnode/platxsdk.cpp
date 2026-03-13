@@ -4,14 +4,25 @@
       ObjectDoor Door Client -- Synchronet XSDK Win32 implementations of door I/O functions.
 */
 
-#include <string.h>
-#include "e:\doors\intrnode\door.h"
-#include "e:\doors\intrnode\intrnode.h"
+//#include <string.h>
+#include <cstring>
+#include <thread>
+#ifndef LPSTR
+#define LPSTR char*
+#endif
+#include "../intrnode/door.h"
+#include "../intrnode/intrnode.h"
+#include "xsdk.h"
 
 void beforeExit();
 
 short nNoLocalWindow = 1;
 
+#ifndef _WIN32
+extern char node_dir[128]; // Declared in XSDKVARS.C
+extern void initdata(void);
+extern uint sec_warn, sec_timeout;
+#endif
 
 // Called upon door startup, to initialize the door depending on the doorkit's needs.
 void startup(int argc, char *argv[])
@@ -40,7 +51,12 @@ void startup(int argc, char *argv[])
    initdata();
 
    if ( nNoLocalWindow == 1 )
+   {
+	  // TODO
+	  #ifdef _WIN32
       FreeConsole();
+	  #endif
+   }
 
    sec_warn = 270;
    sec_timeout = 300;
@@ -54,7 +70,6 @@ void setupExitFunction()
    atexit(beforeExit);
 }
 
-
 // Gets an input key, if one is present; returns 0 if no input key waiting.
 char inputKey()
 {
@@ -67,6 +82,14 @@ char inputKey()
 void local(char* szString, short nColor, short nNewLines)
 {
    short n;
+
+   // Reset XSDK's line counter and abort flag before each output.
+   // The game handles its own pausing (via getKey/getStr), so the
+   // XSDK auto-pause (bpause) is unwanted.  If bpause triggers inside
+   // outchar(), it blocks in getkey() which steals keystrokes from the
+   // game's input buffer, effectively eating commands the user typed.
+   lncntr = 0;
+   aborted = 0;
 
    attr(nColor);
 
@@ -124,6 +147,10 @@ void center(char* szText, short nColor, short nNewlines)
 // Displays the specified ANSI file.
 void showAnsi(char *szFileName)
 {
+   // Reset line counter so XSDK's built-in auto-pause doesn't trigger
+   // during file display.  The game handles its own pausing.
+   lncntr = 0;
+   aborted = 0;
    printfile(szFileName);
 }
 
@@ -169,33 +196,41 @@ void checkTimeLeft()
 // Displays a hit-any-key type prompt and waits for a key.
 void pausePrompt(short nClear, short nCenter)
 {
-   char* szText = "[Hit any key to continue]";
+	char* szText = (char*)"[Hit any key to continue]";
 
-   time_t timeout = time(NULL);
+	time_t timeout = time(NULL);
 
-   if ( nCenter != 1 )
-      local(szText, LWHITE, 0);
-   else
-      center(szText, LWHITE, 0);
+	if ( nCenter != 1 )
+		local(szText, LWHITE, 0);
+	else
+		center(szText, LWHITE, 0);
 
-   while ( inkey(0) == 0 )
-      {
-      checkCarrier();
-      checkTimeLeft();
-      inactiveCheck(timeout);
-      Sleep(0);
-      }
+	while ( inkey(0) == 0 )
+	{
+		checkCarrier();
+		checkTimeLeft();
+		inactiveCheck(timeout);
+		//Sleep(0);
+		std::this_thread::sleep_for(std::chrono::milliseconds(0));
+	}
 
-   
-   if (nClear == 1)
-      clearScreen();
-   else
-      local(" ");
+
+	if (nClear == 1)
+		clearScreen();
+	else
+		local((char*)" ");
 }
 
 
 void clearScreen()
 {
+   // Reset XSDK line counter and abort flag before clearing.
+   // cls() has a built-in auto-pause when lncntr > 1, but the game
+   // handles its own pausing via getKey()/getStr(), so the auto-pause
+   // is unwanted and causes extra "[Hit a key]" prompts.
+   lncntr = 0;
+   tos = 1;
+   aborted = 0;
    cls();
 }
 
@@ -270,41 +305,41 @@ short getPlatform()
 // Checks if the user has been inactive for too long
 bool inactiveCheck(time_t timeout, short nFixLine)
 {
-   static time_t ttPrevious;
-   static bool bAlreadyWarned = false;
-   static bool bTimedOut = false;
-   char szText[60];
-   time_t now;
+	static time_t ttPrevious;
+	static bool bAlreadyWarned = false;
+	static bool bTimedOut = false;
+	char szText[60];
+	time_t now;
 
-   if ( bTimedOut )
-      return true;
+	if ( bTimedOut )
+		return true;
 
-   now = time(NULL);
+	now = time(NULL);
 
-   if ( bAlreadyWarned && timeout != ttPrevious )
-      bAlreadyWarned = false;
-   
-   if ( (now - timeout) >= (time_t)sec_warn && !bAlreadyWarned )
-      {
-      if ( nFixLine == 1 )
-         SAVELINE;
-      sprintf(szText, "Warning -- Inactivity timeout in %d seconds!", int(sec_timeout - sec_warn));
-      local(szText, LRED);
-      bAlreadyWarned = true;
-      if ( nFixLine == 1 )
-         RESTORELINE;
-      }
+	if ( bAlreadyWarned && timeout != ttPrevious )
+		bAlreadyWarned = false;
 
-   if ( (now - timeout) >= (time_t)sec_timeout )
-      {
-      local("Inactivity timeout.");
-      bTimedOut = true;
-      exit(0);
-      return true;
-      }
+	if ( (now - timeout) >= (time_t)sec_warn && !bAlreadyWarned )
+	{
+		if ( nFixLine == 1 )
+			SAVELINE;
+		sprintf(szText, "Warning -- Inactivity timeout in %d seconds!", int(sec_timeout - sec_warn));
+		local(szText, LRED);
+		bAlreadyWarned = true;
+		if ( nFixLine == 1 )
+			RESTORELINE;
+	}
 
-   ttPrevious = timeout;
-   return false;
+	if ( (now - timeout) >= (time_t)sec_timeout )
+	{
+		local((char*)"Inactivity timeout.");
+		bTimedOut = true;
+		exit(0);
+		return true;
+	}
+
+	ttPrevious = timeout;
+	return false;
 }
 
 

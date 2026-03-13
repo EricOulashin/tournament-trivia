@@ -57,6 +57,201 @@ Compiling:
 All code was originally compiled on Borland C++ 5.  With modern compilers, YMMV.
 
 
+## Linux Port
+
+Tournament Trivia was originally written as a 32-bit Windows application. The source code has been updated to compile and run on Linux (64-bit) while maintaining full binary compatibility with the original Windows data file formats (e.g., `settings.dat`, `player.dat`). Claude AI was used to port the code to Linux.
+
+### Key Changes by File
+
+| File | Changes |
+|------|---------|
+| `platformDefs.h` | POSIX mqueue types (`mqd_t`), `std::recursive_mutex` for critical sections, MQ constants, guarded `HANDLE`/`INVALID_HANDLE_VALUE` redefinitions |
+| `intrnode.cpp` | Rewrote IPC using `mq_open`/`mq_send`/`mq_receive` instead of Windows mailslots |
+| `gamesrv.cpp` | Fixed critical sections (lock/unlock), thread launch bug, `std::terminate` removal, `mq_getattr`/`mq_receive` in run loop, `std::filesystem` fixes |
+| `door.cpp` | Rewrote `getOutput()` with mqueue, proper cleanup in `beforeExit()`, removed debug prints |
+| `door.h` | Added Linux platform detection (`XSDK32`/`OD32`), guarded color constants against `__COLORS` enum conflict |
+| `linuxPlatformDefs.cpp` | Fixed `strcmpi()` null terminator bug |
+| `Makefile` | Added `-D__CONSOLE__`, `-lrt`, `-lpthread` flags |
+
+### Debug Logging
+
+To enable logging, create an empty file called `debug.on` in the Tournament Trivia directory (where the executable is). Logs will be written to `trivsrv.log`.
+
+### SDKs and Libraries
+
+The game uses the following SDKs/libraries:
+
+- **OpenDoors SDK** -- Used by the `triv32` Door32-compatible executable for BBS door I/O
+- **XSDK (Synchronet External Program SDK)** -- Used by `trivsync` for native Synchronet BBS integration
+- **ncurses** -- Used by the `trivconfig` configuration utility for its text-based UI
+- **POSIX message queues** -- Replace Windows mailslots for inter-process communication between the game server (`trivsrv`) and client processes (`trivsync`/`triv32`)
+
+## Building on Linux
+
+All build targets are managed by the Makefile in the `updated/trivia/` directory.
+
+### Prerequisites
+
+- GCC / G++ with C++20 support
+- ncurses development library (`libncurses-dev` or `ncurses-devel`)
+- POSIX real-time library (`librt`, typically included with glibc)
+- pthreads (`libpthread`, typically included with glibc)
+- OpenDoors library (pre-built in the Synchronet source tree; the Makefile expects `SBBS_REPO_ROOT` to point to a Synchronet repository checkout)
+
+### Build Commands
+
+From the `updated/trivia/` directory:
+
+```bash
+# Build all targets
+make
+
+# Build individual targets
+make trivsrv       # Game server (manages game state, rounds, scoring)
+make trivsync      # Synchronet client (connects player to trivsrv via XSDK)
+make triv32        # Door32 / OpenDoors client
+make trivconfig    # Configuration program (ncurses TUI for editing settings.dat)
+make regtriv       # Registration key generator
+
+# Clean all build artifacts
+make clean
+```
+
+### Makefile Configuration
+
+The Makefile expects `ODOORS_SRC` to be set to the path of the OpenDoors SDK library and XSDK headers. The OpenDoors library is
+assumed to be already built.  For instance, for Synchronet, with the Synchronet Git repository cloned, ODOORS_SRC would be
+something like /sbbs/repo/src/odoors
+
+
+```makefile
+ODOORS_SRC = /sbbs/repo/src/odoors
+```
+
+## Programs
+
+### trivsrv -- Game Server
+
+The game server process that manages all game state: player tracking, question rounds, scoring, clue timing, and chat. It communicates with one or more client processes (`trivsync` or `triv32`) via POSIX message queues. One `trivsrv` instance runs per active game session.
+
+### trivsync -- Synchronet Client
+
+The Synchronet-specific client executable. It uses Synchronet's XTRN.DAT drop file and the XSDK for terminal I/O, providing support for Synchronet global commands such as online user lists, logon/logoff notifications, and inter-node paging.
+
+### triv32 -- Door32 / OpenDoors Client
+
+The Door32-compatible client executable, built with the OpenDoors SDK. It reads a DOOR32.SYS drop file and works with any BBS software that supports Door32 doors.
+
+### trivconfig -- Configuration Program
+
+A standalone ncurses-based text user interface for editing the game's `settings.dat` configuration file. It reads and writes the exact same 290-byte binary format used by the original 32-bit Windows game, ensuring full compatibility.
+
+Settings that can be configured:
+
+| Setting | Description | Range | Default |
+|---------|-------------|-------|---------|
+| Question Frequency | How long an unanswered question remains before being replaced | 25-75 seconds | 50 |
+| Max Clues | Maximum number of clues displayed per question | 0-4 | 3 |
+| Player Inactivity Timeout | Time before an idle player is disconnected | 60-600 seconds | 300 |
+| Show Sysops on Score List | Whether sysop players appear on the score list | Yes/No | Yes |
+| Verify Question Submissions | Whether custom question submissions require approval | Yes/No | Yes |
+| Question Files (1-10) | Filenames of trivia question databases to load | Up to 10 files | database.enc, custom.txt |
+| Previous Month's Winner | Display name of last month's winner (informational) | Text | none |
+| Previous Month's High Score | Last month's winning score (informational) | 0-32767 | 0 |
+
+**Usage:**
+```bash
+cd /path/to/trivia    # Must run from the directory containing settings.dat
+./trivconfig
+```
+
+**Controls:**
+- Up/Down arrows (or `j`/`k`): Navigate menu items
+- Enter: Edit selected item
+- Space: Toggle Yes/No items
+- `Q`: Quit (prompts to save if changes were made)
+
+### regtriv -- Registration Key Generator
+
+A console utility that generates registration key files (`ttreg.dat`) for Tournament Trivia. It prompts for a sysop name and produces an encoded key file, then verifies the key by decoding it back.
+
+Source: `updated/keygen/regtriv.cpp`
+
+**Usage:**
+```bash
+./regtriv
+```
+
+The program creates `ttreg.dat` (the registration key) and appends a log entry to `regs.log` in the current directory.
+
+## Setup
+
+### Synchronet BBS
+
+To add Tournament Trivia to a Synchronet BBS, configure an external program in SCFG:
+
+| Field | Value |
+|-------|-------|
+| Name | Tournament Trivia |
+| Internal Code | TRIVIA |
+| Start-up Directory | /path/to/trivia |
+| Command Line | trivsync |
+| Multiple Concurrent Users | Yes |
+| BBS Drop File Type | Synchronet XTRN.DAT |
+| Place Drop File In | Node Directory |
+
+When selecting the Synchronet XTRN.DAT drop file type, set "use real names" to "no" for proper alias display in inter-node paging.
+
+### Other BBS Software (Door32)
+
+For BBS software with Door32.sys support, use `triv32` with appropriate command-line options:
+
+```
+/D or /DROPFILE  - Door information file directory and/or filename
+/N or /NODE      - Sets the node number to use
+/SOCKET x        - Needed in EleBBS and GameSrv to specify the socket
+/L or /LOCAL     - Operate in local mode (no drop file required)
+/USERNAME        - Specify user name in local mode
+/SILENT          - No local display window
+/GRAPHICS        - Force ANSI mode on
+```
+
+## Configuration
+
+Game settings can be changed in two ways:
+
+1. **trivconfig** -- Run the standalone configuration program (recommended)
+2. **In-game "config" command** -- Available to sysop users while in the game
+
+## Adding Questions
+
+### Default Question Database
+
+The stock question database is `database.enc`. Updated versions with additional questions may be available from the original distribution site.
+
+In the unregistered version, only 400 questions from `database.enc` are available.
+
+### Custom Questions
+
+Add custom questions to `custom.txt` (or any additional question file configured in settings). The format alternates question and answer lines:
+
+```
+What is the capital of France?
+Paris
+What year did the Berlin Wall fall?
+1989
+```
+
+Rules:
+- Questions are on odd-numbered lines, answers on even-numbered lines
+- Press Enter only at the end of each line
+- Questions: max 160 characters
+- Answers: max 80 characters
+- Use a text editor that shows line numbers and has word wrap disabled
+
+Additional question files (up to 10 total) can be added through `trivconfig` or the in-game config command.
+
+In the unregistered version, only 150 total questions from custom/third-party files are available.
 
 
 Synchronet, Synchronet XSDK, and the OpenDoors door kit are all copyright their
@@ -76,3 +271,4 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
+

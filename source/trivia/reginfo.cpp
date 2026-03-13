@@ -1,7 +1,13 @@
-#include <fstream.h>
-#include <stdio.h>
-#include "e:\doors\intrnode\gamesrv.h"
-#include "source\trivia.h"
+//#include <fstream.h>
+//#include <stdio.h>
+#include <fstream>
+#include <cstdio>
+#include <algorithm> // For std::reverse()
+#include <filesystem>
+#include "../intrnode/gamesrv.h"
+#include "trivia.h"
+using std::ifstream;
+using std::ios;
 
 
 RegInfo::RegInfo()
@@ -20,22 +26,28 @@ bool RegInfo::load()
    if ( bInit )
       return false;
 
-   nLength = (short)getFileLength("ttreg.dat");
-   if ( nLength < 5 || nLength > 2000 )
-      return false;
-      
-   szHolder = new unsigned char[nLength];   
-   ifstream myFile;
-   myFile.open("ttreg.dat", ios::binary | ios::in );
-   myFile.read(szHolder, nLength);
-   myFile.close();
-   
-   unsigned char nLen1, nLen2, nHighVal, nChar2, nLastChar, nSpaceCount, nTot;
-   long lPos = 0;
+   szHolder = nullptr;
+
    class BadFile { };
-   
+
+   bool retVal = false;
+
    try
       {
+      nLength = (short)getFileLength((char*)"ttreg.dat");
+      if ( nLength < 5 || nLength > 2000 )
+         return false;
+
+      szHolder = new unsigned char[nLength];   
+      ifstream myFile;
+      myFile.open("ttreg.dat", ios::binary | ios::in );
+      //myFile.read(szHolder, nLength);
+      myFile.read((char*)szHolder, nLength); // TODO: Should we do this, or make szHolder just a char*?
+      myFile.close();
+         
+      unsigned char nLen1, nLen2, nHighVal, nChar2, nLastChar, nSpaceCount, nTot;
+      long lPos = 0;
+
       nLen1 = decode(szHolder[lPos++], 0);
       nSpaceCount = decode(szHolder[lPos++], 1);
       nChar2 = decode(szHolder[lPos++], 2);
@@ -64,8 +76,10 @@ bool RegInfo::load()
          }
 
       szRegdTo[n] = '\0';
-      strrev(szRegdTo);
-         
+	  // Note: strrev() is deprecated; use std:reverse() instead
+      //strrev(szRegdTo);
+	  std::reverse(szRegdTo, szRegdTo+strlen(szRegdTo));
+
       short nMyHigh = 0;
       for ( short n = 0; n < strlen(szRegdTo); n++ )
          {
@@ -90,18 +104,25 @@ bool RegInfo::load()
          throw BadFile();
       
       bInit = true;
-      return true;
+      retVal = true;
       }
 
-   catch ( BadFile bf )
+   catch ( const BadFile& bf )
       {
       szRegdTo[0] = '\0';
       nLength = 0;
-      delete szHolder;
+      //delete szHolder;
+	   delete[] szHolder;
       szHolder = NULL;
-      return false;
       }
+   catch (const std::filesystem::filesystem_error& exc)
+   {
+      //delete szHolder;
+	  delete[] szHolder;
+     szHolder = NULL;
+   }
 
+   return retVal;
 }
 
 

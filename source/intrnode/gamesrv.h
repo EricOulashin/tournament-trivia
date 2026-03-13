@@ -2,7 +2,8 @@
 #define GAMESRVH_DEF
 
 #include <time.h>
-#include "e:\doors\intrnode\intrnode.h"
+#include <string>
+#include "intrnode.h"
 
 // General constants
 const short MAX_NODE         = 150;
@@ -75,6 +76,7 @@ class GameServer
    protected:
       CRITICAL_SECTION csCritical;
       HANDLE hInputSlot;
+	  std::string inputSlotName;
       void handleInput(InputData);
       virtual void addNode(short, char*) = 0;
       virtual void centralInput(InputData);

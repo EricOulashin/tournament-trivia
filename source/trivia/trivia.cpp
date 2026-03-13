@@ -1,27 +1,72 @@
-#include <stdio.h>
-#include <fstream.h>
-#include "e:\doors\intrnode\gamesrv.h"
-#include "source\trivia.h"
+#include <cstdio>
+#include <fstream>
+#include <algorithm>
+#include <string>
+#include <cctype>
+#include <chrono>
+#include <filesystem>
+#include <exception>
+#ifndef _WIN32
+#include <unistd.h>
+#include <csignal>
+#endif
+#include "../intrnode/gamesrv.h"
+#include "../intrnode/trivlog.h"
+#include "trivia.h"
+using std::ifstream;
+using std::ofstream;
+using std::ios;
 
 GameSettings GameSettings::info;
 
-TriviaServer* gsGame;
+TriviaServer* gsGame = nullptr;
 
 
-void main()
+int main()
 {
-   gsGame = new TriviaServer;
-  
-   gsGame->initDatabase();
+	#ifndef _WIN32
+	// Detach from the spawning trivsync's session so the server is not
+	// killed when that user's BBS session ends (SIGHUP to process group).
+	setsid();
+	signal(SIGHUP, SIG_IGN);
+	#endif
 
-   // If game maintenance should be run, do so
-   if ( GameSettings::info.checkMaint() )
-      GameSettings::info.maint();
-      
-   gsGame->run();
+	//gsGame = nullptr;
+	trivlog("trivsrv: starting (cwd: %s)\n", std::filesystem::current_path().c_str());
+	try
+	{
+		gsGame = new TriviaServer;
 
-   // Save game data
-   GameSettings::save();
+		gsGame->initDatabase();
+		trivlog("trivsrv: database loaded, %u questions\n", gsGame->getDatabaseSize());
+
+		// If game maintenance should be run, do so
+		if ( GameSettings::info.checkMaint() )
+		{
+			GameSettings::info.maint();
+		}
+
+		gsGame->run();
+
+		// Save game data
+		GameSettings::save();
+	}
+	catch (const std::filesystem::filesystem_error& exc)
+	{
+		printf("Filesystem error: %s\n", exc.what());
+	}
+	catch (const std::exception& exc)
+	{
+		printf("%s\n", exc.what());
+	}
+	catch (...)
+	{
+		printf("Unknown error\n");
+	}
+	if (gsGame != nullptr)
+		delete gsGame;
+
+	return 0;
 }
 
 
@@ -32,36 +77,36 @@ void main()
 
 TriviaServer::TriviaServer()
 {
-   char* szNone = "none";
+	char* szNone = (char*)"none";
 
-   strcpy(szQuestion, szNone);
-   strcpy(szAnswer, szNone);
-   strcpy(szClue, szNone);
-   strcpy(szDB[0], "database.enc");
-   nClueNumber = 0;
-   nStartTime = 0;
-   nNodeInEditor = -1;
-   tqDatabase = NULL;
-   nDatabaseSize = 0;
-   nSkipRequests = 0;
-   
-   nTrackLine[0] = -1;
-   nTrackLine[1] = -1;
-   nTrackFile[0] = -1;
-   nTrackFile[1] = -1;
+	strcpy(szQuestion, szNone);
+	strcpy(szAnswer, szNone);
+	strcpy(szClue, szNone);
+	strcpy(szDB[0], "database.enc");
+	nClueNumber = 0;
+	nStartTime = 0;
+	nNodeInEditor = -1;
+	tqDatabase = NULL;
+	nDatabaseSize = 0;
+	nSkipRequests = 0;
 
-   for ( short n = 1; n < MAX_TRIVIA_FILES; n++ )
-      strcpy(szDB[n], szNone);
+	nTrackLine[0] = -1;
+	nTrackLine[1] = -1;
+	nTrackFile[0] = -1;
+	nTrackFile[1] = -1;
 
-   // If custom.tx but no custom.txt (ie, on fresh install), copy custom.tx
-   // to custom.txt.  This mechanism prevents custom.txt from being over-written
-   // upon upgrading the game.
-	if ( getFileLength("custom.txt") <= 0 && getFileLength("custom.tx") > 0 )
-      myCopyFile("custom.tx", "custom.txt", FALSE);
-   if ( getFileLength("custom.tx") > 0 )
-      myDeleteFile("custom.tx");
-   
-   Command::init(this);
+	for ( short n = 1; n < MAX_TRIVIA_FILES; n++ )
+		strcpy(szDB[n], szNone);
+
+	// If custom.tx but no custom.txt (ie, on fresh install), copy custom.tx
+	// to custom.txt.  This mechanism prevents custom.txt from being over-written
+	// upon upgrading the game.
+	if ( getFileLength((char*)"custom.txt") <= 0 && getFileLength((char*)"custom.tx") > 0 )
+		myCopyFile((char*)"custom.tx", (char*)"custom.txt", FALSE);
+	if ( getFileLength((char*)"custom.tx") > 0 )
+		myDeleteFile((char*)"custom.tx");
+
+	Command::init(this);
 }
 
 
@@ -142,12 +187,21 @@ void TriviaServer::indexQuestions(char* szFile, unsigned char nFileCode, bool bE
       {
       lQuestionPos = ifsDataFile.tellg();
 
-      ifsDataFile.getline(szQuestion, 160, '\n'); //--> 161?!?
+      ifsDataFile.getline(szQuestion, 160, '\n');
       if ( !ifsDataFile || strlen(szQuestion) < 3 )
          break;
-      
+      // Strip trailing \r from Windows CRLF line endings
+      if ( szQuestion[strlen(szQuestion)-1] == '\r' )
+         szQuestion[strlen(szQuestion)-1] = '\0';
+      if ( strlen(szQuestion) < 3 )
+         break;
+
       ifsDataFile.getline(szAnswer, 80, '\n');
       if ( !ifsDataFile || strlen(szAnswer) < 1 )
+         break;
+      if ( szAnswer[strlen(szAnswer)-1] == '\r' )
+         szAnswer[strlen(szAnswer)-1] = '\0';
+      if ( strlen(szAnswer) < 1 )
          break;
 
       tqDatabase[nDatabaseSize++].setValue(nFileCode, lQuestionPos, bEncoded, nLineCount);
@@ -176,10 +230,13 @@ void TriviaServer::centralInput(InputData id)
 {
    Player* pl = dynamic_cast<Player*>( gNode[id.nFrom] );
    char szText[180];
-   
+
    // Ignore nonstandard input messages
    if ( id.nType != IP_NORMAL )
+      {
+      trivlog("trivsrv: centralInput ignoring non-normal msg type %d from node %d\n", id.nType, id.nFrom);
       return;
+      }
 
    // No input or "display" / ".d":  Redisplay question
    if ( strlen(id.szMessage) < 1 || strcmpi(id.szMessage, "display") == 0 || strcmpi(id.szMessage, ".d") == 0 )
@@ -192,7 +249,9 @@ void TriviaServer::centralInput(InputData id)
    if ( checkForAnswer(id.szMessage) )
       {
       // Display a message to all players
-      sprintf(szText, "\r\n>>> %s got the correct answer: %s!", pl->szAlias, strupr(szAnswer));
+      std::string answerUpper(szAnswer);
+      std::transform(answerUpper.begin(), answerUpper.end(), answerUpper.begin(), ::toupper);
+      sprintf(szText, "\r\n>>> %s got the correct answer: %s!", pl->szAlias, answerUpper.c_str());
       gsGame->printAll(szText, CYAN);
             
       pl->awardPoints( pointValue() );
@@ -212,7 +271,10 @@ void TriviaServer::centralInput(InputData id)
 
    // If a valid command was found, do the effect
    if ( myCommand != NULL )
+      {
+      trivlog("trivsrv: command '%s' from node %d\n", szFirstWord, id.nFrom);
       myCommand->doEffect(szArg, pl);
+      }
 
    // If input was none of the above, echo it to the room
    else
@@ -276,12 +338,20 @@ void TriviaServer::nextQuestion()
    short nTries = 0, nRandom;
    bool bFirstQuestion = false;
    Player* pl;
-   
+
+   // If no questions loaded, cannot proceed
+   if ( nDatabaseSize == 0 )
+   {
+      printAll((char*)"\r\nNo trivia questions available!  Check that database.enc is in the game directory.");
+      nStartTime = time(NULL);
+      return;
+   }
+
    // If question timer is still 0, this is the first question.  (This is used for displaying
    // the question differently)
    if ( nStartTime == 0 )
       bFirstQuestion = true;
-   
+
    // Get a random question; try to get one that hasn't been used yet this session.
    do
       {
@@ -404,12 +474,12 @@ void TriviaServer::displayQuestion(GameNode* pl, bool bNewQuestion, bool bFirstQ
    if ( bNewQuestion )
       {
       if ( bFirstQuestion )
-         printAll("\r\n\r\n* * *  FIRST QUESTION * * *", YELLOW);
+         printAll((char*)"\r\n\r\n* * *  FIRST QUESTION * * *", YELLOW);
       else
-         printAll("\r\n\r\n* * *  NEW QUESTION * * *", YELLOW);
+         printAll((char*)"\r\n\r\n* * *  NEW QUESTION * * *", YELLOW);
       }
 
-   char* szClueNums[3] = { "First ", "Second ", "Third " };
+   char* szClueNums[3] = { (char*)"First ", (char*)"Second ", (char*)"Third " };
    char szClueHeader[20], szClueText[50];
    szClueHeader[0] = '\0';
 
@@ -422,14 +492,14 @@ void TriviaServer::displayQuestion(GameNode* pl, bool bNewQuestion, bool bFirstQ
       
    if ( pl != NULL )
       {      
-      pl->print("\r\nQuestion:       ", WHITE, 0);
+      pl->print((char*)"\r\nQuestion:       ", WHITE, 0);
       pl->printWordWrap(szQuestion, LWHITE, 1, 16, true);
       pl->print(szClueText, WHITE, 0);
       pl->print(szClue, LBLUE);
       }
    else
       {
-      printAll("\r\nQuestion:       ", WHITE, 0);
+      printAll((char*)"\r\nQuestion:       ", WHITE, 0);
       printAllWordWrap(szQuestion, LWHITE, 1, 16, true);
       printAll(szClueText, WHITE, 0);
       printAll(szClue, LBLUE);
@@ -458,7 +528,7 @@ void TriviaServer::listOnlinePlayers(GameNode* pl)
    char szText[200];
    bool bFirstPlayer = true;
 
-   pl->print("Players on-line:  ", GREEN, 0);
+   pl->print((char*)"Players on-line:  ", GREEN, 0);
    szText[0] = '\0';
 
    for ( short n = 0; n < MAX_NODE; n++ )
@@ -528,7 +598,7 @@ char* TriviaServer::getDBName(short nFileCode)
       nFileCode = 0;
 
    if ( strlen(szDB[nFileCode]) < 1 )
-      return "database.enc";
+      return (char*)"database.enc";
       
    return szDB[nFileCode];
 }
@@ -577,7 +647,7 @@ short TriviaServer::getCurrentScore(char* szPlayerName)
       {
       if ( gNode[n] != NULL && gNode[n]->bInGame )
          {
-         if ( strcmpi(gNode[n]->szRealName, szPlayerName) == 0 )
+         if ( strcmpi(gNode[n]->szAlias, szPlayerName) == 0 )
             {
             pl = dynamic_cast<Player*>(gNode[n]);
             return pl->getScore();
@@ -620,7 +690,7 @@ void TriviaServer::displayScores(GameNode* pl)
    char szText[80];
    bool bOneColumn = false;
    pl->newline();
-   pl->underline("THIS MONTH'S HIGH SCORES", "Ä", LCYAN, BLUE, true);
+   pl->underline((char*)"THIS MONTH'S HIGH SCORES", (char*)"ï¿½", LCYAN, BLUE, true);
 
    if ( myRecords[5].isEmpty() )
       bOneColumn = true;
@@ -646,7 +716,7 @@ void TriviaServer::displayScores(GameNode* pl)
          
       strcat(szText, "    ");
       pl->print(szText, CYAN, 0);
-      pl->print("³ ", BLUE, 0);
+      pl->print((char*)"ï¿½ ", BLUE, 0);
 
       if ( myRecords[n+5].isEmpty() )
          sprintf(szText, "%2d. %-18s [     points] ", n+6, " ");
@@ -700,14 +770,26 @@ void TriviaQuestion::getStrings(char* szQ, char* szA)
 
    if ( !ifsDataFile )
       {
+      #ifdef _WIN32
       MessageBox(NULL, "Unable to read from question file!", "Trivia", MB_ICONSTOP | MB_OK | MB_TASKMODAL);
+      #endif
       return;
       }
    
    ifsDataFile.seekg(lLocationInFile);
-   ifsDataFile.getline(szQ, 160, '\n');  //--> ?
-   ifsDataFile.getline(szA, 80, '\n');   //--> ?!
+   ifsDataFile.getline(szQ, 160, '\n');
+   ifsDataFile.getline(szA, 80, '\n');
    ifsDataFile.close();
+
+   // Strip trailing \r from Windows line endings (CRLF).
+   // Must be done BEFORE decoding, since \r is not encoded data.
+   short nLen = 0;
+   nLen = strlen(szQ);
+   if ( nLen > 0 && szQ[nLen-1] == '\r' )
+      szQ[nLen-1] = '\0';
+   nLen = strlen(szA);
+   if ( nLen > 0 && szA[nLen-1] == '\r' )
+      szA[nLen-1] = '\0';
 
    if ( bEncoded )
       {
@@ -798,9 +880,14 @@ GameSettings::GameSettings()
    char szFullDate[12];
    
    // Set current month
+   /*
    _strdate(szFullDate);
    szText = strtok(szFullDate, "/");
    nCurMonth = atoi(szText);
+   */
+   auto now = std::chrono::system_clock::now();
+   std::chrono::year_month_day ymd = std::chrono::floor<std::chrono::days>(now);
+   nCurMonth = static_cast<short>(static_cast<unsigned int>(ymd.month()));
 
    // No previous winner
    strcpy(szPreviousWinner, "none");
@@ -826,9 +913,61 @@ GameSettings::GameSettings()
    ifsSettingsFile.open("settings.dat", ios::in | ios::binary);
    if ( ifsSettingsFile )
       {
+      #ifdef _WIN32
+      // Windows: original raw struct read (layout matches the file)
       ifsSettingsFile.read( (char*)this, sizeof(GameSettings) );
+      #else
+      // Linux: field-by-field read for cross-platform compatibility.
+      // On Linux x86_64, time_t is 8 bytes and struct padding differs
+      // from the Windows 32-bit layout (4-byte time_t, no padding),
+      // so raw struct reads produce corrupt data.
+      ifsSettingsFile.seekg(0, ios::end);
+      long fileSize = ifsSettingsFile.tellg();
+      ifsSettingsFile.seekg(0, ios::beg);
+
+      if ( fileSize == 290 )
+         {
+         // Windows 32-bit format: read field-by-field with 4-byte time values
+         int nClueFreq32 = 0, nQuestFreq32 = 0;
+         char bVerify8 = 1, bListSys8 = 1;
+         ifsSettingsFile.read( (char*)&nCurMonth, 2 );
+         ifsSettingsFile.read( (char*)&nDifficulty, 2 );
+         ifsSettingsFile.read( szPreviousWinner, 60 );
+         ifsSettingsFile.read( (char*)&nPreviousHighScore, 2 );
+         ifsSettingsFile.read( (char*)&nMaxClues, 2 );
+         ifsSettingsFile.read( (char*)&nClueFreq32, 4 );
+         ifsSettingsFile.read( (char*)&nQuestFreq32, 4 );
+         ifsSettingsFile.read( &bVerify8, 1 );
+         ifsSettingsFile.read( (char*)szExtraFiles, 210 );
+         ifsSettingsFile.read( &bListSys8, 1 );
+         ifsSettingsFile.read( (char*)&nPlayerTimeout, 2 );
+         nClueFrequency = nClueFreq32;
+         nQuestionFrequency = nQuestFreq32;
+         bVerifySubmissions = (bVerify8 != 0);
+         bListSysops = (bListSys8 != 0);
+         }
+      else
+         {
+         // Unknown or Linux-native format: ignore file, use defaults.
+         // (A 304-byte file was written by the old Linux binary with
+         // corrupted time_t fields from a Windows-format migration.)
+         }
+      #endif
       ifsSettingsFile.close();
       }
+
+   // Validate settings (safety net for any corruption)
+   if ( nMaxClues < 0 || nMaxClues > 4 )
+      nMaxClues = 3;
+   if ( nQuestionFrequency < 25 || nQuestionFrequency > 75 )
+      nQuestionFrequency = 50;
+   nClueFrequency = nQuestionFrequency / (nMaxClues + 1);
+   if ( nPlayerTimeout < 60 || nPlayerTimeout > 600 )
+      nPlayerTimeout = 300;
+
+   // Safety: if szExtraFiles[0] ended up empty or corrupt, restore default.
+   if ( strlen(szExtraFiles[0]) == 0 || szExtraFiles[0][0] < 32 )
+      strcpy(szExtraFiles[0], "database.enc");
 }
 
 void GameSettings::save()
@@ -838,7 +977,28 @@ void GameSettings::save()
    ofsSettingsFile.open("settings.dat", ios::out | ios::binary | ios::trunc);
    if ( ofsSettingsFile )
       {
+      #ifdef _WIN32
+      // Windows: original raw struct write
       ofsSettingsFile.write( (char*)&info, sizeof(GameSettings) );
+      #else
+      // Linux: field-by-field write in portable format (290 bytes,
+      // matching Windows 32-bit layout for cross-platform compatibility)
+      int nClueFreq32 = (int)info.nClueFrequency;
+      int nQuestFreq32 = (int)info.nQuestionFrequency;
+      char bVerify8 = info.bVerifySubmissions ? 1 : 0;
+      char bListSys8 = info.bListSysops ? 1 : 0;
+      ofsSettingsFile.write( (char*)&info.nCurMonth, 2 );
+      ofsSettingsFile.write( (char*)&info.nDifficulty, 2 );
+      ofsSettingsFile.write( info.szPreviousWinner, 60 );
+      ofsSettingsFile.write( (char*)&info.nPreviousHighScore, 2 );
+      ofsSettingsFile.write( (char*)&info.nMaxClues, 2 );
+      ofsSettingsFile.write( (char*)&nClueFreq32, 4 );
+      ofsSettingsFile.write( (char*)&nQuestFreq32, 4 );
+      ofsSettingsFile.write( &bVerify8, 1 );
+      ofsSettingsFile.write( (char*)info.szExtraFiles, 210 );
+      ofsSettingsFile.write( &bListSys8, 1 );
+      ofsSettingsFile.write( (char*)&info.nPlayerTimeout, 2 );
+      #endif
       ofsSettingsFile.flush();
       ofsSettingsFile.close();
       }
@@ -852,9 +1012,14 @@ void GameSettings::maint()
    char szFullDate[10];
    
    // Set current month
+   /*
    _strdate(szFullDate);
    szText = strtok(szFullDate, "/");
    info.nCurMonth = atoi(szText);
+   */
+   auto now = std::chrono::system_clock::now();
+   std::chrono::year_month_day ymd = std::chrono::floor<std::chrono::days>(now);
+   info.nCurMonth = static_cast<short>(static_cast<unsigned int>(ymd.month()));
 
    PlayerRecord* myRecords = PlayerRecord::getRankedRecords();
 
@@ -868,9 +1033,15 @@ void GameSettings::maint()
    // Otherwise, save high score and delete player file & clear rankings.
    else
       {
-      strcpy(info.szPreviousWinner, strupr(myRecords[0].szAlias));
+      //strcpy(info.szPreviousWinner, strupr(myRecords[0].szAlias));
+      /*
+      std::string aliasUpper;
+      std::transform(myRecords[0].szAlias, myRecords[0].szAlias+strlen(myRecords[0].szAlias), aliasUpper.begin(), ::toupper);
+      strcpy(info.szPreviousWinner, aliasUpper.c_str());
+      */
+      std::transform(myRecords[0].szAlias, myRecords[0].szAlias+strlen(myRecords[0].szAlias), info.szPreviousWinner, ::toupper);
       info.nPreviousHighScore = myRecords[0].nScore;
-      myDeleteFile("player.dat");
+      myDeleteFile((char*)"player.dat");
 
       for ( int n = 0; n < 10; n++ )
          {
@@ -889,13 +1060,16 @@ bool GameSettings::checkMaint()
    char szFullDate[12];
    
    // Check current month
+   /*
    _strdate(szFullDate);
    szText = strtok(szFullDate, "/");
+   */
+   auto now = std::chrono::system_clock::now();
+   std::chrono::year_month_day ymd = std::chrono::floor<std::chrono::days>(now);
+   
 
-   if ( info.nCurMonth != atoi(szText) )
+   if ( info.nCurMonth != static_cast<short>(static_cast<unsigned int>(ymd.month())) )
       return true;
    else
       return false;
 }
-
-   

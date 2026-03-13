@@ -1,15 +1,24 @@
-#include <stdio.h>
+#ifdef _WIN32
 #include <windows.h>
 #include <process.h>
 #include <conio.h>
 #include <dir.h>
-#include <new.h>
-#include "e:\doors\intrnode\gamesrv.h"
-#include "source\doorset.h"
+//#include <new.h>
+#endif
+
+#include <new>
+#include <thread>
+#include <filesystem>
+#include <random>
+
+#include <stdio.h>
+#include "../intrnode/gamesrv.h"
+#include "trivlog.h"
+#include "../trivia/doorset.h"
 
 void handleThread(void*);
 void startRoundThread(void*);
-void badNew();
+void badNew_Gamesrv();
 
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -18,48 +27,53 @@ void badNew();
 // GameServer constructor
 GameServer::GameServer()
 {
-   // Set the function for bad new call
-   set_new_handler(badNew);
+	// Set the function for bad new call
+	std::set_new_handler(badNew_Gamesrv);
 
-   // Open the input slot
-   hInputSlot = createSlot(-1);
+	// Open the input slot
+	hInputSlot = createSlot(-1, &inputSlotName);
 
-   if ( hInputSlot == INVALID_HANDLE_VALUE )
-      exit(0);
+	if ( hInputSlot == INVALID_HANDLE_VALUE )
+	{
+		inputSlotName = "";
+		exit(0);
+	}
 
-   // Initialize all nodes to NULL.
-   for ( int n = 0; n < MAX_NODE; n++ )
-      {
-      gNode[n] = NULL;
-      }
+	// Initialize all nodes to nullptr.
+	for ( int n = 0; n < MAX_NODE; n++ )
+	{
+		gNode[n] = nullptr;
+	}
 
-   // Initialize the game's CRITICAL_SECTION object.
-   InitializeCriticalSection(&csCritical);
-      
-   nCriticalCount = 0;
-   nPlayersInGame = 0;
+	#ifdef _WIN32
+	// Initialize the game's CRITICAL_SECTION object.
+	InitializeCriticalSection(&csCritical);
+	#endif
+
+	nCriticalCount = 0;
+	nPlayersInGame = 0;
 }
 
 
 // Prints a message to all on-line nodes that are flagged as being in the game.
 void GameServer::printAll(char* szText, short nColor, short nNewlines, short nType)
 {
-   for ( short n = 0; n < MAX_NODE; n++ )
-      {
-      if ( gNode[n] != NULL && gNode[n]->bInGame )
-         gNode[n]->print(szText, nColor, nNewlines, nType);
-      }
+	for ( short n = 0; n < MAX_NODE; n++ )
+	{
+		if ( gNode[n] != nullptr && gNode[n]->bInGame )
+			gNode[n]->print(szText, nColor, nNewlines, nType);
+	}
 }
 
 
 // Same as printAll() but uses word wrap.
 void GameServer::printAllWordWrap(char* szText, short nColor, short nNewlines, short nOffset, bool bCarryIndent)
 {
-   for ( short n = 0; n < MAX_NODE; n++ )
-      {
-      if ( gNode[n] != NULL && gNode[n]->bInGame )
-         gNode[n]->printWordWrap(szText, nColor, nNewlines, nOffset, bCarryIndent);
-      }
+	for ( short n = 0; n < MAX_NODE; n++ )
+	{
+		if ( gNode[n] != nullptr && gNode[n]->bInGame )
+			gNode[n]->printWordWrap(szText, nColor, nNewlines, nOffset, bCarryIndent);
+	}
 }
 
 
@@ -67,129 +81,183 @@ void GameServer::printAllWordWrap(char* szText, short nColor, short nNewlines, s
 // Returns when last player exits game.
 void GameServer::run()
 {
-   DWORD nNextMessageSize, nMessagesLeft, nBytesRead;      
-   InputData idMessage;
-   char szBuffer[245];
+	DWORD nNextMessageSize, nMessagesLeft, nBytesRead;
+	InputData idMessage;
+	#ifdef _WIN32
+	char szBuffer[245];
+	#else
+	char szBuffer[MQ_MAX_MSG_SIZE + 1];
+	#endif
 
-   // Call randomize() in the GameServer's operational thread (usually same thread as main())
-   myRandomize();
+	// Call randomize() in the GameServer's operational thread (usually same thread as main())
+	myRandomize();
 
-   while ( true )
-      {
-      nMessagesLeft = 0;
-      nNextMessageSize = MAILSLOT_NO_MESSAGE;
+	while ( true )
+	{
+		nMessagesLeft = 0;
+		nNextMessageSize = MAILSLOT_NO_MESSAGE;
 
-      // Check the status of the slot.
-      GetMailslotInfo(hInputSlot, NULL, &nNextMessageSize, &nMessagesLeft, NULL);
-      
-      // If there's no input, sleep and then return to top of loop.
-      if ( nNextMessageSize == MAILSLOT_NO_MESSAGE )
-         {
-         Sleep(100);
-         continue;
-         }
+		// Check the status of the slot.
+		#ifdef _WIN32
+		GetMailslotInfo(hInputSlot, nullptr, &nNextMessageSize, &nMessagesLeft, nullptr);
+		#else
+		{
+			struct mq_attr attr;
+			if (mq_getattr(hInputSlot, &attr) == 0 && attr.mq_curmsgs > 0)
+			{
+				nNextMessageSize = attr.mq_msgsize;
+				nMessagesLeft = attr.mq_curmsgs;
+			}
+		}
+		#endif
 
-      // If there's a message, read it and process it.
-      if ( nMessagesLeft > 0 )
-         {
-         // Ignore invalid message sizes (see MS Knowledge Base Q192276)
-         if ( nNextMessageSize < 0 || nNextMessageSize > 500 )
-            continue;
+		// If there's no input, sleep and then return to top of loop.
+		if ( nNextMessageSize == MAILSLOT_NO_MESSAGE )
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			continue;
+		}
 
-         ReadFile(hInputSlot, szBuffer, nNextMessageSize, &nBytesRead, NULL); 
-         idMessage = szBuffer;         
-         enterCritical();
-         handleInput(idMessage);
-         leaveCritical();
-         
-         // If last player just exited, shut down the server.
-         if ( idMessage.nType == IP_FINISHED && nPlayersInGame == 0 )
-            {
-            CloseHandle(hInputSlot);
-            DeleteCriticalSection(&csCritical);
-            return;
-            }
-         }
-      }
+		// If there's a message, read it and process it.
+		if ( nMessagesLeft > 0 )
+		{
+			// Ignore invalid message sizes (see MS Knowledge Base Q192276)
+			if ( nNextMessageSize > 500 )
+				continue;
+
+			#ifdef _WIN32
+			ReadFile(hInputSlot, szBuffer, nNextMessageSize, &nBytesRead, nullptr);
+			#else
+			{
+				ssize_t bytesRead = mq_receive(hInputSlot, szBuffer, MQ_MAX_MSG_SIZE, nullptr);
+				if (bytesRead < 0)
+					continue;
+				nBytesRead = (DWORD)bytesRead;
+				szBuffer[bytesRead] = '\0';
+			}
+			#endif
+			idMessage = szBuffer;
+			trivlog("trivsrv: recv type=%d from=%d msg='%s'\n", idMessage.nType, idMessage.nFrom, idMessage.szMessage);
+			enterCritical();
+			handleInput(idMessage);
+			leaveCritical();
+
+			// If last player just exited, shut down the server.
+			if ( idMessage.nType == IP_FINISHED && nPlayersInGame == 0 )
+			{
+				#ifdef _WIN32
+				CloseHandle(hInputSlot);
+				DeleteCriticalSection(&csCritical);
+				#else
+				mq_close(hInputSlot);
+				mq_unlink(inputSlotName.c_str());
+				#endif
+				return;
+			}
+		}
+	}
 }
 
 
 // Processes input messages and redirects them to the proper node thread.
 void GameServer::handleInput(InputData idMessage)
 {
-   // If message is from a totally out-of-range node number, ignore it.
-   if ( idMessage.nFrom < 0 || idMessage.nFrom >= MAX_NODE )
-      return;
+	// If message is from a totally out-of-range node number, ignore it.
+	if ( idMessage.nFrom < 0 || idMessage.nFrom >= MAX_NODE )
+		return;
 
-   // If an enter-game message:
-   if ( idMessage.nType == IP_ENTER_GAME )
-      {
-      if ( gNode[idMessage.nFrom] != NULL )
-         {
-         gNode[idMessage.nFrom]->print("Error:  Node already in game.  Please wait 5 seconds and re-enter game.");
-         gNode[idMessage.nFrom]->exitGame();
-         return;
-         }
+	// If an enter-game message:
+	if ( idMessage.nType == IP_ENTER_GAME )
+	{
+		if ( gNode[idMessage.nFrom] != nullptr )
+		{
+			gNode[idMessage.nFrom]->print((char*)"Error:  Node already in game.  Please wait 5 seconds and re-enter game.");
+			gNode[idMessage.nFrom]->exitGame();
+			return;
+		}
 
-      // Create the new node and then return.  Start round thread if needed.  Verify the player isn't a dupe.
-      nPlayersInGame++;
-      addNode(idMessage.nFrom, idMessage.szMessage);
+		// Create the new node and then return.  Start round thread if needed.  Verify the player isn't a dupe.
+		nPlayersInGame++;
+		addNode(idMessage.nFrom, idMessage.szMessage);
 
-      if ( nPlayersInGame == 1 )
-         _beginthread(startRoundThread, 4096, this);
+		if ( nPlayersInGame == 1 )
+		{
+			#ifdef _WIN32
+			_beginthread(startRoundThread, 4096, this);
+			#else
+			std::thread t(startRoundThread, static_cast<void*>(this));
+			t.detach();
+			#endif
+		}
 
-      for ( short n = 0; n < MAX_NODE; n++ )
-         {
-         if ( gNode[n] == NULL || n == idMessage.nFrom )
-            continue;
-         if ( strcmpi(gNode[n]->szRealName, gNode[idMessage.nFrom]->szRealName) == 0 )
-            {
-            gNode[idMessage.nFrom]->print("You are on-line on multiple nodes!\r\nPlease wait 5 seconds and re-enter the game.");
-            gNode[n]->print("You are on-line on multiple nodes!\r\nPlease wait 5 seconds and re-enter the game.");
-            gNode[idMessage.nFrom]->exitGame();
-            gNode[n]->exitGame();
-            }
-         }
-     
-      return;
-      }
-      
-   // If input is from an invalid node, ignore it.
-   if ( gNode[idMessage.nFrom] == NULL )
-      return;
+		for ( short n = 0; n < MAX_NODE; n++ )
+		{
+			if ( gNode[n] == nullptr || n == idMessage.nFrom )
+				continue;
+			if ( strcmpi(gNode[n]->szAlias, gNode[idMessage.nFrom]->szAlias) == 0 )
+			{
+				gNode[idMessage.nFrom]->print((char*)"You are on-line on multiple nodes!\r\nPlease wait 5 seconds and re-enter the game.");
+				gNode[n]->print((char*)"You are on-line on multiple nodes!\r\nPlease wait 5 seconds and re-enter the game.");
+				gNode[idMessage.nFrom]->exitGame();
+				gNode[n]->exitGame();
+			}
+		}
 
-   // If an exit-game message:
-   if ( idMessage.nType == IP_FINISHED )
-      {
-      // Kill the node.  If the node has a thread, wait until the
-      // thread is terminated (by a IP_FORCE_EXIT) before proceeding.
-      while ( gNode[idMessage.nFrom]->bHasThread )
-         {
-         leaveCritical();
-         Sleep(200);
-         enterCritical();
-         }
-      CloseHandle(gNode[idMessage.nFrom]->hOutputSlot);
-      delete gNode[idMessage.nFrom];
-      gNode[idMessage.nFrom] = NULL;
-      nPlayersInGame--;
-      return;
-      }
-      
-   // Otherwise, message is IP_NORMAL or IP_FORCE_EXIT.  In either case, route the
-   // InputData to the appropriate node, and let the node's thread take care of it.   
-   // If not using separate threads for each node, have an outside function handle
-   // the message instead.
-   if ( gNode[idMessage.nFrom]->bHasThread )
-      gNode[idMessage.nFrom]->mqInput.enqueue(idMessage);
-   else
-      centralInput(idMessage);
+		return;
+	}
+
+	// If input is from an invalid node, ignore it.
+	if ( gNode[idMessage.nFrom] == nullptr )
+		return;
+
+	// If an exit-game message:
+	if ( idMessage.nType == IP_FINISHED )
+	{
+		trivlog("trivsrv: IP_FINISHED from node %d, nPlayersInGame=%d\n", idMessage.nFrom, nPlayersInGame);
+
+		// Kill the node.  If the node has a thread, wait until the
+		// thread is terminated (by a IP_FORCE_EXIT) before proceeding.
+		while ( gNode[idMessage.nFrom]->bHasThread )
+		{
+			leaveCritical();
+			std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			enterCritical();
+		}
+
+		// Notify remaining players that this player has left.
+		char szExitMsg[120];
+		sprintf(szExitMsg, ">>> %s has left the game.", gNode[idMessage.nFrom]->szAlias);
+
+		#ifdef _WIN32
+		CloseHandle(gNode[idMessage.nFrom]->hOutputSlot);
+		#else
+		mq_close(gNode[idMessage.nFrom]->hOutputSlot);
+		#endif
+		delete gNode[idMessage.nFrom];
+		gNode[idMessage.nFrom] = nullptr;
+		nPlayersInGame--;
+
+		trivlog("trivsrv: node %d removed, nPlayersInGame now %d\n", idMessage.nFrom, nPlayersInGame);
+
+		if ( nPlayersInGame > 0 )
+			printAll(szExitMsg, MAGENTA);
+
+		return;
+	}
+
+	// Otherwise, message is IP_NORMAL or IP_FORCE_EXIT.  In either case, route the
+	// InputData to the appropriate node, and let the node's thread take care of it.
+	// If not using separate threads for each node, have an outside function handle
+	// the message instead.
+	if ( gNode[idMessage.nFrom]->bHasThread )
+		gNode[idMessage.nFrom]->mqInput.enqueue(idMessage);
+	else
+		centralInput(idMessage);
 }
 
 
 // Virtual function for handling input on nodes that don't have their own
 // threads.  Over-ride to add functionality if desired.
-#pragma argsused
 void GameServer::centralInput(InputData id)
 {
 }
@@ -197,7 +265,6 @@ void GameServer::centralInput(InputData id)
 
 // Virtual function for handling a round event.  Over-ride to add functionality
 // if desired.
-#pragma argsused
 void GameServer::doorRound(time_t nRound)
 {
 }
@@ -209,16 +276,24 @@ void GameServer::doorRound(time_t nRound)
 // doing so.
 void GameServer::enterCritical()
 {
-   nCriticalCount++;
-   EnterCriticalSection(&csCritical);
+	nCriticalCount++;
+	#ifdef _WIN32
+	EnterCriticalSection(&csCritical);
+	#else
+	csCritical.lock();
+	#endif
 }
 
 
 // Used to leave a critical section.
 void GameServer::leaveCritical()
 {
-   LeaveCriticalSection(&csCritical);
-   nCriticalCount--;
+	#ifdef _WIN32
+	LeaveCriticalSection(&csCritical);
+	#else
+	csCritical.unlock();
+	#endif
+	nCriticalCount--;
 }
 
 
@@ -242,17 +317,17 @@ GameNode::GameNode(short nNumber, char* szUserInfo)
       bSysop = false;
 
    // Read gender
-   char* szTemp = strtok(NULL, "&");
+   char* szTemp = strtok(nullptr, "&");
    cGender = szTemp[0];
 
    // Read platform
-   nPlatform = atoi( strtok(NULL, "&") );
+   nPlatform = atoi( strtok(nullptr, "&") );
 
    // Read alias
-   strcpy( szAlias, strtok(NULL, "&") );
-   
+   strcpy( szAlias, strtok(nullptr, "&") );
+
    // Read real name
-   strcpy( szRealName, strtok(NULL, "") );
+   strcpy( szRealName, strtok(nullptr, "") );
 }
 
 
@@ -268,11 +343,11 @@ GameNode::~GameNode()
 void GameNode::print(char* szText, short nColor, short nNewlines, short nType)
 {
    OutputData odMessage;
-   char szBuffer[250];
-   
+   char szBuffer[MQ_MAX_MSG_SIZE + 1];
+
    // Need to convert szText to an output message.
    odMessage.szMessage[0] = '\0';
-   if ( szText != NULL )
+   if ( szText != nullptr )
       {
       if ( strlen(szText) >= 200 - 2*nNewlines )
          szText[199 - 2*nNewlines] = '\0';
@@ -289,7 +364,7 @@ void GameNode::print(char* szText, short nColor, short nNewlines, short nType)
    odMessage.nColor = nColor;
    odMessage.nType = nType;
    fillStats(&odMessage);
-  
+
    // Send the message to the slot, after converting it to a string.
    sendToSlot(hOutputSlot, odMessage.toString(szBuffer));
 }
@@ -311,8 +386,8 @@ void GameNode::printWordWrap(char* szText, short nColor, short nNewlines, short 
          }
       szCarryOffset[nOffset] = '\0';
       }
-   
-   while ( strlen(szPosition) > (79 - nOffset) )
+
+   while ( strlen(szPosition) > (unsigned)(79 - nOffset) )
       {
       nMarker = 79 - nOffset;
 
@@ -338,33 +413,33 @@ void GameNode::printWordWrap(char* szText, short nColor, short nNewlines, short 
       }
 
    if (strlen(szPosition) > 0 )
-      print(szPosition, nColor, nNewlines); 
+      print(szPosition, nColor, nNewlines);
 }
 
 
 // Prints a newline
 void GameNode::newline()
 {
-   print(" \r\n", LWHITE, 0);
+   print((char*)" \r\n", LWHITE, 0);
 }
 
 
 // Tells the node to pause for a keystroke
 void GameNode::pausePrompt()
 {
-   print(NULL, 7, 0, OP_FORCE_PAUSE);
+   print(nullptr, 7, 0, OP_FORCE_PAUSE);
 }
 
 // Tells the node to exit
 void GameNode::exitGame()
 {
-   print(NULL, 7, 0, OP_EXIT_NODE);
+   print(nullptr, 7, 0, OP_EXIT_NODE);
 }
 
 // Tells the node to clear its screen
 void GameNode::clearScreen()
 {
-   print(NULL, 7, 0, OP_CLEAR_SCREEN);
+   print(nullptr, 7, 0, OP_CLEAR_SCREEN);
 }
 
 // Prints centered text on node's screen
@@ -385,17 +460,17 @@ void GameNode::displayHlp(char* szFileName, char* szEntry, char* szError, bool b
    char szText[180];
 
    short nTotalLength = 5 + strlen(szFileName) + strlen(szEntry);
-   if ( szError == NULL )
+   if ( szError == nullptr )
       nTotalLength += 4;
    else
       nTotalLength += strlen(szError);
 
    if ( nTotalLength > 175 )
       return;
-  
+
    sprintf(szText, "%s&%s&", szFileName, szEntry);
-    
-   if ( szError == NULL )
+
+   if ( szError == nullptr )
       strcat(szText, "none");
    else
       strcat(szText, szError);
@@ -420,31 +495,31 @@ void GameNode::textBox(char* szBoxTitle, short nTextColor, short nBoxColor, bool
 
    if ( bCenter)
       {
-      short nEmpty = 38 - (short)(strlen(szBoxTitle) / 2);  
+      short nEmpty = 38 - (short)(strlen(szBoxTitle) / 2);
       for (n = 0; n < nEmpty; n++)
          szHolder[n] = ' ';
       szHolder[nEmpty] = '\0';
       print(szHolder, 7, 0);
       }
-   
-   for (n = 0; n < strlen(szBoxTitle) + 4; n++)
-      szText[n] = 'Í';
-   szText[0] = 'É';
-   szText[ strlen(szBoxTitle) + 3 ] = '»';
+
+   for (n = 0; n < (short)(strlen(szBoxTitle) + 4); n++)
+      szText[n] = '-';
+   szText[0] = '+';
+   szText[ strlen(szBoxTitle) + 3 ] = '+';
    szText[ strlen(szBoxTitle) + 4 ] = '\0';
 
    print(szText, nBoxColor);
 
    if ( bCenter )
       print(szHolder, 7, 0);
-   print("º ", nBoxColor, 0);
-   print(szBoxTitle, nTextColor, 0); 
-   print(" º", nBoxColor);
-      
+   print((char*)"| ", nBoxColor, 0);
+   print(szBoxTitle, nTextColor, 0);
+   print((char*)" |", nBoxColor);
+
    if ( bCenter )
       print(szHolder, 7, 0);
-   szText[0] = 'È';
-   szText[ strlen(szBoxTitle) + 3 ] = '¼';
+   szText[0] = '+';
+   szText[ strlen(szBoxTitle) + 3 ] = '+';
    print(szText, nBoxColor, 2);
 }
 
@@ -455,7 +530,7 @@ void GameNode::menuOption(char cKey, char* szText, short nKeyColor, short nArrow
    char szHolder[5];
    sprintf(szHolder, " %c", cKey);
    print(szHolder, nKeyColor, 0);
-   print("  ", nArrowColor, 0);
+   print((char*)"  ", nArrowColor, 0);
    print(szText, nTextColor);
 }
 
@@ -491,8 +566,8 @@ void GameNode::underline(char* szText, char* szUnderline, short nTextColor, shor
       print(szText, nTextColor);
       print(szHolder, nUnderColor);
       }
-   
-   delete szHolder;
+
+   delete[] szHolder;
 }
 
 
@@ -512,7 +587,7 @@ GameThread::GameThread(GameNode* aNode, GameServer* aServer)
 // upon thread termination.
 void GameThread::cleanup()
 {
-   gn->print(NULL, LWHITE, 0, OP_COMMAND_PROMPT);
+   gn->print(nullptr, LWHITE, 0, OP_COMMAND_PROMPT);
 }
 
 
@@ -524,15 +599,15 @@ char* GameThread::getStr(char* szBuffer, char* szPromptText, short nPromptCol, s
    gn->print(szPromptText, nPromptCol, 0, OP_COMMAND_PROMPT);
 
    gs->leaveCritical();
-   
+
    // While there's no input messages waiting, sleep.
    while ( gn->mqInput.isEmpty() )
       {
-      Sleep(50);
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }
 
    gs->enterCritical();
-      
+
    // Retreive the first waiting input message
    InputData idMessage = gn->mqInput.dequeue();
 
@@ -541,9 +616,9 @@ char* GameThread::getStr(char* szBuffer, char* szPromptText, short nPromptCol, s
       throw ThreadException();
 
    // If the message is too long, shorten it.
-   if ( strlen(idMessage.szMessage) > nMaxLen && nMaxLen < 190 )
+   if ( strlen(idMessage.szMessage) > (unsigned)nMaxLen && nMaxLen < 190 )
       idMessage.szMessage[nMaxLen] = '\0';
-      
+
    // Copy the message to the buffer and return it.
    strcpy(szBuffer, idMessage.szMessage);
    return szBuffer;
@@ -551,7 +626,7 @@ char* GameThread::getStr(char* szBuffer, char* szPromptText, short nPromptCol, s
 
 
 // Sets a new prompt for the user and then gets a single keypress (hotkey).
-// May wait for input, depending on value of bWait.  
+// May wait for input, depending on value of bWait.
 char GameThread::getKey(char* szPromptText, short nPromptCol, bool bWait)
 {
    // Display the new prompt
@@ -559,20 +634,20 @@ char GameThread::getKey(char* szPromptText, short nPromptCol, bool bWait)
 
    if ( bWait )
       gs->leaveCritical();
-   
+
    // While there's no input, if bWait is true, pause until input is present.
    // But if there's no input and bWait is false, return 0.
    while ( gn->mqInput.isEmpty() )
       {
       if ( bWait )
-         Sleep(50);
+         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       else
          return 0;
       }
 
    if ( bWait )
       gs->enterCritical();
-      
+
    // Retreive the first waiting input message
    InputData idMessage = gn->mqInput.dequeue();
 
@@ -600,9 +675,21 @@ void GameThread::pause(bool bCenter)
 // Static method used to launch a dedicated-node thread for temporarily handling a node's IO.
 void GameThread::launch(GameThread* aThread)
 {
-   // Don't allow multiple threads for a single node.
-   if ( !aThread->gn->bHasThread )
-      _beginthread(handleThread, 4096, aThread);   
+	// Don't allow multiple threads for a single node.
+	if ( !aThread->gn->bHasThread )
+	{
+		trivlog("trivsrv: launching thread for %s\n", aThread->gn->szAlias);
+		#ifdef _WIN32
+		_beginthread(handleThread, 4096, aThread);
+		#else
+		std::thread t(handleThread, static_cast<void*>(aThread));
+		t.detach();
+		#endif
+	}
+	else
+	{
+		trivlog("trivsrv: thread launch BLOCKED for %s (bHasThread=true)\n", aThread->gn->szAlias);
+	}
 }
 
 
@@ -633,12 +720,23 @@ void handleThread(void* vArg)
       // No need to actually do anything here; we simply needed to break
       // out of run().
       }
+   catch ( const std::exception& e )
+      {
+      trivlog("trivsrv: thread exception: %s\n", e.what());
+      }
+   catch ( ... )
+      {
+      trivlog("trivsrv: unknown thread exception\n");
+      }
 
    gt->cleanup();
    gt->gn->bHasThread = false;
    gt->gs->leaveCritical();
    delete gt;
+   #ifdef _WIN32
    _endthread();
+   #endif
+   // On Linux, the thread function simply returns, ending the thread naturally.
 }
 
 
@@ -649,56 +747,67 @@ void startRoundThread(void* gsVoidServer)
 
    // Have to call randomize() once for each thread in BC5, apparently.
    myRandomize();
-   
+
    while ( gsServer->nPlayersInGame > 0 )
       {
-      Sleep(ROUND_TIME);
+      std::this_thread::sleep_for(std::chrono::milliseconds(ROUND_TIME));
       gsServer->enterCritical();
-      gsServer->doorRound( time(NULL) );
+      try
+         {
+         gsServer->doorRound( time(nullptr) );
+         }
+      catch ( const std::exception& e )
+         {
+         trivlog("trivsrv: round thread exception: %s\n", e.what());
+         }
+      catch ( ... )
+         {
+         trivlog("trivsrv: round thread unknown exception\n");
+         }
       gsServer->leaveCritical();
       }
+   trivlog("trivsrv: round thread exiting (nPlayersInGame = %d)\n", gsServer->nPlayersInGame);
 }
 
 
 // Returns the length of a closed file, or 0 if invalid filename.
 long getFileLength(char* filespec)
 {
-   struct ffblk f;
-
-   if(findfirst(filespec,&f,0)==NULL)
-      return(f.ff_fsize);
-   return(0);
+	long fileLength = 0;
+	try
+	{
+		fileLength = static_cast<long>(std::filesystem::file_size(filespec));
+	}
+	catch (const std::exception& exc)
+	{
+	}
+	catch (...)
+	{
+	}
+	return fileLength;
 }
 
 
 // Deletes a file with the given name.  Wildcards are supported.
 void myDeleteFile(char* szName)
 {
-   WIN32_FIND_DATA wfdFound;
-   HANDLE hdHandle;
-   short nTries = 0;
-   
-   hdHandle = FindFirstFile(szName, &wfdFound);
-
-   if (hdHandle == INVALID_HANDLE_VALUE)
-      return;
-
-   DeleteFile(wfdFound.cFileName);
- 
-   while ( FindNextFile(hdHandle, &wfdFound) != FALSE && nTries < 100 )
-      {
-      DeleteFile(wfdFound.cFileName);
-      nTries++;
-      }
-
-   FindClose(hdHandle);
+	const std::string name(szName);
+	std::filesystem::path dir = "."; // Current directory
+	for (const auto& entry : std::filesystem::directory_iterator(dir))
+	{
+		if (entry.path().filename().string().find(name) != std::string::npos)
+			std::filesystem::remove(entry);
+	}
 }
 
 
 // Copies a file.  Wildcards are not supported.
 void myCopyFile(char* szSource, char* szDestination, BOOL bFailIfThere)
 {
-   CopyFile(szSource, szDestination, bFailIfThere);   
+	if (bFailIfThere == TRUE && std::filesystem::exists(szDestination))
+		return;
+	std::filesystem::copy_file(szSource, szDestination,
+		std::filesystem::copy_options::overwrite_existing);
 }
 
 
@@ -706,27 +815,21 @@ void myCopyFile(char* szSource, char* szDestination, BOOL bFailIfThere)
 // before using *in a given thread*.
 short dice(short nMin, short nMax)
 {
-   int n;
+	std::random_device rd; // Obtain a random seed from the OS
+	std::mt19937 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
+	std::uniform_int_distribution<> distrib(nMin, nMax); // Define the range
 
-   if ( nMin >= nMax )
-      return nMin;
-
-   n = (random(nMax - nMin + 1)) + nMin;
-
-   return (short(n));
+	return (short)distrib(gen); // Generate and return the random number
 }
 
 
 // Seeds the random number generator, and discards first few rolls.
 void myRandomize()
 {
-   randomize();
-   random(33);
-   random(100);
-   random(1234);
+	// No-op on Linux: using std::random_device + mt19937 in dice() instead
 }
 
-// Does "intelligent search" ON first parameter, FOR second parameter 
+// Does "intelligent search" ON first parameter, FOR second parameter
 bool wordSearch(char* szString1, char* szString2)
 {
    char szToSearch[162];
@@ -736,14 +839,14 @@ bool wordSearch(char* szString1, char* szString2)
       szString1[160] = '\0';
    if ( strlen(szString2) > 160 )
       szString2[160] = '\0';
-   
+
    sprintf(szToSearch, " %s", szString1);
    sprintf(szToFind, " %s", szString2);
 
    strlwr(szToSearch);
    strlwr(szToFind);
-   
-   if ( strstr(szToSearch, szToFind) != NULL )
+
+   if ( strstr(szToSearch, szToFind) != nullptr )
       return true;
    else
       return false;
@@ -751,29 +854,7 @@ bool wordSearch(char* szString1, char* szString2)
 
 
 // Function called when new fails
-void badNew()
+void badNew_Gamesrv()
 {
-   ExitProcess(0);
+	exit(0);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

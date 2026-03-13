@@ -1,8 +1,17 @@
-#include <stdio.h>
-#include <process.h>
-#include "e:\doors\intrnode\gamesrv.h"
-#include "source\trivia.h"
+//#include <stdio.h>
+#include <cstdio>
+//#include <process.h>
+//#include <cstdlib> // For itoa()
+#include <cstring> // For memcpy_s()
+#include <sstream>
+#include <string>
+#include "../intrnode/gamesrv.h"
+#include "../intrnode/trivlog.h"
+#include "trivia.h"
 
+// memcpy_s() doesn't seem to be included in <cstring> or <string.h> like cppreference.com
+// says it should be
+#define memcpy_s(dest, destSize, src, srcCount) memcpy(dest, src, srcCount)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // TriviaThread
@@ -45,7 +54,12 @@ void EnterGameThread::run()
    sprintf(szText, "%s build, compiled on %s", szFor, DOOR_COMPILE);
    pl->center(szText, LWHITE);
 
-   itoa(myServer->getDatabaseSize(), szText, 10);
+   //itoa(myServer->getDatabaseSize(), szText, 10);
+   std::ostringstream oss;
+   oss << myServer->getDatabaseSize();
+   const std::string numStr = oss.str();
+   //errno_t memcpy_s( void *restrict dest, rsize_t destsz, const void *restrict src, rsize_t count );
+   memcpy_s((void*)szText, sizeof(szText), (void*)numStr.c_str(),  numStr.length());
    strcpy(szFor, "--");
    if ( (strlen(myServer->getReg().getRegName()) + strlen(szText)) % 2 == 0 )
       strcpy(szFor, "-");
@@ -70,11 +84,11 @@ void EnterGameThread::run()
       
    if ( pl->getScore() == 0 )
       {
-      getStr(szText, "Would you like instructions on how to play?  [y/n]: ");
+      getStr(szText, (char*)"Would you like instructions on how to play?  [y/n]: ");
 
       if ( szText[0] == 'y' || szText[0] == 'Y' )
          {
-         pl->displayHlp("user.hlp", "instructions");
+         pl->displayHlp((char*)"user.hlp", (char*)"instructions");
          pause();
          }
       }
@@ -91,17 +105,19 @@ void EnterGameThread::run()
 
    pl->clearScreen();
    pl->bInGame = true;
-   pl->displayScreen("menu");
+   pl->displayScreen((char*)"menu");
    pl->newline();
    if ( pl->bSysop )
       {
       if ( pl->nPlatform == PL_OPENDOORS32 )
-         pl->displayHlp("user.hlp", "local");
+         pl->displayHlp((char*)"user.hlp", (char*)"local");
       else
-         pl->displayHlp("user.hlp", "sysop");
+         pl->displayHlp((char*)"user.hlp", (char*)"sysop");
       }
    myServer->listOnlinePlayers(pl);
+   trivlog("trivsrv: thread calling displayQuestion\n");
    myServer->displayQuestion(pl);
+   trivlog("trivsrv: thread completed successfully\n");
 }
 
 
@@ -120,26 +136,23 @@ GameThread* ExitPromptThread::factory(GameNode* aNode, GameServer* aServer)
 
 void ExitPromptThread::run()
 {
-   char szAnswer[81];
+	char szAnswer[81];
 
-   gn->newline();
-   getStr(szAnswer, "Are you sure you want to exit?  [y/n]: ");
-   if ( szAnswer[0] == 'y' || szAnswer[0] == 'Y' )
-      {
-      gn->print("\r\nThanks for playing Tournament Trivia! ", GREEN, 2);
-      if ( !myServer->checkReg() )
-         {
-         gn->print("\r\nThis ", LWHITE, 0);
-         gn->print("UNREGISTERED ", WHITE, 0);
-         gn->print("copy of the game has a limited number of questions; the full");
-         gn->print("version has many more.  You can help your sysop register the game at a");
-         gn->print("discounted price by contributing new trivia questions!  Please visit");
-         gn->print("http://trivia.doormud.com/submit.html", WHITE, 0);
-         gn->print(" for more information.", LWHITE, 2);
-         gn->pausePrompt();
-         }
-      gn->exitGame();
-      }
+	gn->newline();
+	getStr(szAnswer, (char*)"Are you sure you want to exit?  [y/n]: ");
+	if ( szAnswer[0] == 'y' || szAnswer[0] == 'Y' )
+	{
+		gn->print((char*)"\r\nThanks for playing Tournament Trivia! ", GREEN, 2);
+
+		// Mark the node as no longer in-game BEFORE sending the exit
+		// command.  This prevents the round thread from trying to send
+		// output to this node after the client has exited and stopped
+		// draining its queue.  On Linux, sendToSlot blocks for up to
+		// 2 seconds per message when the queue is full, which would hold
+		// the critical section and delay server shutdown.
+		gn->bInGame = false;
+		gn->exitGame();
+	}
 }                      
 
 
@@ -166,7 +179,7 @@ void SysopThread::run()
    while ( true )
       {
       gn->clearScreen();
-      gn->textBox("Sysop Config Menu", WHITE);
+      gn->textBox((char*)"Sysop Config Menu", WHITE);
 
       sprintf(szText, "Question Frequency:           %ld seconds", GameSettings::info.nQuestionFrequency);
       gn->menuOption('F', szText);
@@ -197,16 +210,16 @@ void SysopThread::run()
             gn->menuOption('0', szText);
          }
       gn->newline();
-      gn->menuOption('X', "Return to game\r\n");
+      gn->menuOption('X', (char*)"Return to game\r\n");
       
-      getStr(szInput, "[Enter a selection]: ", LWHITE, 5);
+      getStr(szInput, (char*)"[Enter a selection]: ", LWHITE, 5);
       szInput[0] = tolower(szInput[0]);
       gn->newline();
    
       switch ( szInput[0] )
          {
          case 'f':
-            getStr(szInput, "Enter new value, from 25 seconds to 75 seconds:  ");
+            getStr(szInput, (char*)"Enter new value, from 25 seconds to 75 seconds:  ");
             nNewValue = atoi(szInput);
             if ( nNewValue >= 25 && nNewValue <= 75 )
                {
@@ -215,7 +228,7 @@ void SysopThread::run()
                }
             break;
          case 'm':
-            getStr(szInput, "Enter new value, from 0 clues to 4 clues:  ");
+            getStr(szInput, (char*)"Enter new value, from 0 clues to 4 clues:  ");
             nNewValue = atoi(szInput);
             if ( nNewValue >= 0 && nNewValue <= 4 )
                {
@@ -235,7 +248,7 @@ void SysopThread::run()
             if ( szInput[0] == '0' )
                szInput[0] = '9' + 1;
                
-            getStr(GameSettings::info.szExtraFiles[szInput[0] - '1'], "Enter new file, or ENTER for none:  ", LWHITE, 14);
+            getStr(GameSettings::info.szExtraFiles[szInput[0] - '1'], (char*)"Enter new file, or ENTER for none:  ", LWHITE, 14);
             nUsedFiles = 0;
             for ( short n = 0; n < MAX_TRIVIA_FILES; n++ )
                {
@@ -252,9 +265,9 @@ void SysopThread::run()
         
             if ( !myServer->checkReg() && strcmpi(GameSettings::info.szExtraFiles[szInput[0] - '1'], "database.enc") != 0 )
                {
-               gn->print("\r\nPlease note:", LRED);
-               gn->print("- In this unregistered copy of the game, only the first 150 questions from");
-               gn->print("  third-party / custom trivia files will be used.", LWHITE, 2);
+               gn->print((char*)"\r\nPlease note:", LRED);
+               gn->print((char*)"- In this unregistered copy of the game, only the first 150 questions from");
+               gn->print((char*)"  third-party / custom trivia files will be used.", LWHITE, 2);
                gn->pausePrompt();
                }
 
