@@ -80,7 +80,7 @@ void center(char* szText, short nColor, short nNewlines, short nBackColor)
       local(szText, nColor, nNewlines, nBackColor);
    else
       {
-      nEmpty = 40 - (short)(strlen(szText) / 2);  
+      nEmpty = 40 - (short)(strlen(szText) / 2);
       for (n = 0; n < nEmpty; n++)
          szHolder[n] = ' ';
       szHolder[nEmpty] = '\0';

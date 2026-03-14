@@ -503,23 +503,23 @@ void GameNode::textBox(char* szBoxTitle, short nTextColor, short nBoxColor, bool
       }
 
    for (n = 0; n < (short)(strlen(szBoxTitle) + 4); n++)
-      szText[n] = '-';
-   szText[0] = '+';
-   szText[ strlen(szBoxTitle) + 3 ] = '+';
+      szText[n] = '\xcd';   // CP437 ═
+   szText[0] = '\xc9';      // CP437 ╔
+   szText[ strlen(szBoxTitle) + 3 ] = '\xbb';  // CP437 ╗
    szText[ strlen(szBoxTitle) + 4 ] = '\0';
 
    print(szText, nBoxColor);
 
    if ( bCenter )
       print(szHolder, 7, 0);
-   print((char*)"| ", nBoxColor, 0);
+   print((char*)"\xba ", nBoxColor, 0);   // CP437 ║
    print(szBoxTitle, nTextColor, 0);
-   print((char*)" |", nBoxColor);
+   print((char*)" \xba", nBoxColor);      // CP437 ║
 
    if ( bCenter )
       print(szHolder, 7, 0);
-   szText[0] = '+';
-   szText[ strlen(szBoxTitle) + 3 ] = '+';
+   szText[0] = '\xc8';      // CP437 ╚
+   szText[ strlen(szBoxTitle) + 3 ] = '\xbc';  // CP437 ╝
    print(szText, nBoxColor, 2);
 }
 
@@ -530,7 +530,7 @@ void GameNode::menuOption(char cKey, char* szText, short nKeyColor, short nArrow
    char szHolder[5];
    sprintf(szHolder, " %c", cKey);
    print(szHolder, nKeyColor, 0);
-   print((char*)"  ", nArrowColor, 0);
+   print((char*)" \x10 ", nArrowColor, 0);  // CP437 ►
    print(szText, nTextColor);
 }
 

@@ -690,7 +690,7 @@ void TriviaServer::displayScores(GameNode* pl)
    char szText[80];
    bool bOneColumn = false;
    pl->newline();
-   pl->underline((char*)"THIS MONTH'S HIGH SCORES", (char*)"�", LCYAN, BLUE, true);
+   pl->underline((char*)"THIS MONTH'S HIGH SCORES", (char*)"\xc4", LCYAN, BLUE, true);
 
    if ( myRecords[5].isEmpty() )
       bOneColumn = true;
@@ -716,7 +716,7 @@ void TriviaServer::displayScores(GameNode* pl)
          
       strcat(szText, "    ");
       pl->print(szText, CYAN, 0);
-      pl->print((char*)"� ", BLUE, 0);
+      pl->print((char*)"\xb3 ", BLUE, 0);
 
       if ( myRecords[n+5].isEmpty() )
          sprintf(szText, "%2d. %-18s [     points] ", n+6, " ");

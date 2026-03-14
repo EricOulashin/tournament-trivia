@@ -276,7 +276,7 @@ void CorrectionCommand::doEffect(char* szParam, Player* pl)
             strcpy(szHeader, "CURRENT QUESTION");
 
          pl->newline();
-         pl->underline(szHeader, (char*)"�", LCYAN, BLUE);
+         pl->underline(szHeader, (char*)"\xc4", LCYAN, BLUE);
 
          sprintf(szText, "  %s question %d", szFileName, nLine);
          pl->print(szText, LWHITE, 0);

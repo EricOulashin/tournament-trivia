@@ -133,8 +133,8 @@ void center(char* szText, short nColor, short nNewlines)
       nTrueLength = strlen(szText);
       while ( nTrueLength > 0 && (szText[nTrueLength-1] == '\n' || szText[nTrueLength-1] == '\r') )
          nTrueLength--;
-         
-      nEmpty = 40 - (short)(nTrueLength / 2);  
+
+      nEmpty = 40 - (short)(nTrueLength / 2);
       for (n = 0; n < nEmpty; n++)
          szHolder[n] = ' ';
       szHolder[nEmpty] = '\0';
