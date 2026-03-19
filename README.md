@@ -88,6 +88,40 @@ The game uses the following SDKs/libraries:
 - **ncurses** -- Used by the `trivconfig` configuration utility for its text-based UI
 - **POSIX message queues** -- Replace Windows mailslots for inter-process communication between the game server (`trivsrv`) and client processes (`trivsync`/`triv32`)
 
+## Building on Windows
+
+The `vs/` directory contains a Visual Studio 2022 solution that builds all three executables for Windows (x64).
+
+### Prerequisites
+
+- Visual Studio 2022 with the "Desktop development with C++" workload
+- OpenDoors SDK (set the `ODOORS_SRC` environment variable to its path, e.g. `C:\OpenDoors`)
+  - Required to build `triv32.exe`; the import library `ODoorW.lib` and headers must be present at that path
+
+### Build
+
+Open `vs/Tournament Trivia.sln` in Visual Studio 2022 and build, or run the convenience batch file from a command prompt:
+
+```bat
+vs\build.bat
+```
+
+This invokes MSBuild for the Release|x64 configuration. Output binaries are placed in `vs\bin\Release\`:
+
+| Executable | Description |
+|------------|-------------|
+| `trivsrv.exe` | Game server |
+| `trivsync.exe` | Synchronet XSDK door client |
+| `triv32.exe` | Door32 / OpenDoors door client |
+
+### Projects
+
+| Project | Output | Notes |
+|---------|--------|-------|
+| `vs\Tournament Trivia\` | `trivsrv.exe` | Game server; no external SDK required |
+| `vs\trivsync\` | `trivsync.exe` | Uses XSDK headers from `source\intrnode\` |
+| `vs\triv32\` | `triv32.exe` | Requires `ODOORS_SRC` pointing to the OpenDoors SDK |
+
 ## Building on Linux
 
 All build targets are managed by the Makefile in the `updated/trivia/` directory.
