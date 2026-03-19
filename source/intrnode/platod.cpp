@@ -12,8 +12,10 @@
 #include <thread>
 //#include "../intrnode/platformDefs.h"
 #include "../trivia/doorset.h"
+#ifndef _WIN32
 #ifndef LPSTR
 #define LPSTR char*
+#endif
 #endif
 #include "../intrnode/door.h"
 #include "../intrnode/intrnode.h"

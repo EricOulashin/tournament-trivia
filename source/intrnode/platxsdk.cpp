@@ -7,8 +7,10 @@
 //#include <string.h>
 #include <cstring>
 #include <thread>
+#ifndef _WIN32
 #ifndef LPSTR
 #define LPSTR char*
+#endif
 #endif
 #include "../intrnode/door.h"
 #include "../intrnode/intrnode.h"

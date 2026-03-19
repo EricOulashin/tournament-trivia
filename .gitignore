@@ -1,0 +1,41 @@
+# Visual Studio build output
+vs/bin/
+vs/obj/
+
+# Visual Studio user-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Visual Studio IntelliSense and browse info
+*.ncb
+*.opendb
+*.VC.db
+*.VC.VC.opendb
+ipch/
+*.ipch
+
+# Compiled object files and intermediates
+*.obj
+*.pch
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# Log files
+*.log
+*.tlog
+
+# CMake (in case it's ever used)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# AI stuff
+.claude

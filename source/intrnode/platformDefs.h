@@ -4,6 +4,9 @@
 #ifdef _WIN32
 
 #include <windows.h>
+// Define MQ_MAX_MSG_SIZE for Windows to match the mailslot max message size
+// used in CreateMailslot() calls (240 bytes + safety margin).
+#define MQ_MAX_MSG_SIZE 244
 
 #else
 // Linux / non-Windows

@@ -2,7 +2,9 @@
 #include <windows.h>
 #include <process.h>
 #include <conio.h>
+#ifdef __BORLANDC__
 #include <dir.h>
+#endif
 //#include <new.h>
 #endif
 

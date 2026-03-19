@@ -26,10 +26,17 @@
 HANDLE createSlot(int nNode, std::string* pSlotName)
 {
 	char szText[80];
+	#ifdef _WIN32
+	if (nNode < 0)
+		sprintf(szText, "\\\\.\\mailslot\\%s", DOOR_INP_SLOT);
+	else
+		sprintf(szText, "\\\\.\\mailslot\\%s%d", DOOR_OUT_SLOT, nNode);
+	#else
 	if (nNode < 0)
 		sprintf(szText, "/%s", DOOR_INP_SLOT);
 	else
 		sprintf(szText, "/%s%d", DOOR_OUT_SLOT, nNode);
+	#endif
 	if (pSlotName != nullptr)
 		*pSlotName = szText;
 
@@ -95,10 +102,17 @@ HANDLE createSlot(int nNode, std::string* pSlotName)
 HANDLE openSlot(int nNode)
 {
 	char szText[80];
+	#ifdef _WIN32
+	if ( nNode < 0 )
+	  sprintf(szText, "\\\\.\\mailslot\\%s", DOOR_INP_SLOT);
+	else
+	  sprintf(szText, "\\\\.\\mailslot\\%s%d", DOOR_OUT_SLOT, nNode);
+	#else
 	if ( nNode < 0 )
 	  sprintf(szText, "/%s", DOOR_INP_SLOT);
 	else
 	  sprintf(szText, "/%s%d", DOOR_OUT_SLOT, nNode);
+	#endif
 
 	#ifdef _WIN32
 	return CreateFile(szText, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, (LPSECURITY_ATTRIBUTES) nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, (HANDLE) nullptr);
