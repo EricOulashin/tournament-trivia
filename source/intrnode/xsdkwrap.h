@@ -186,6 +186,7 @@
 	long	filelength(int fd);
 	char*	strupr(char* str);
 	char*	strlwr(char* str);
+	void	_termios_setup(void);
 
 	char*	strrev(char* str);
 	char*	_fullpath(char* absPath, const char* relPath

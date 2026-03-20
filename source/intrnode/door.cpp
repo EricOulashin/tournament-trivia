@@ -591,12 +591,20 @@ void fixStatline()
       sprintf(szText, STAT_1, odPromptInfo.nHp);
       if ( odPromptInfo.nSp  > -1 )
          {
+#ifdef _WIN32
          sprintf(szTemp, STAT_2, odPromptInfo.nSp);
+#else
+         strcpy(szTemp, STAT_2);
+#endif
          strcat(szText, szTemp);
          }
       if ( odPromptInfo.nMf > -1 )
          {
+#ifdef _WIN32
          sprintf(szTemp, STAT_3, odPromptInfo.nMf);
+#else
+         strcpy(szTemp, STAT_3);
+#endif
          strcat(szText, szTemp);
          }
       strcat(szText, "]");

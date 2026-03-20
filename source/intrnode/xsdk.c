@@ -22,7 +22,7 @@
 /***************************** Revision History *****************************\
 
 			Initial version for use with Synchronet v1a r6
-	1.0á
+	1.0ï¿½
 			Added bgotoxy() macro
 			Added mnehigh and mnelow vars for control of the mnemonic colors
 			Added sys_nodes and node_num variables to xtrn_sdk.c
@@ -1215,7 +1215,7 @@ int getstr(char *strout, size_t maxlen, long mode)
 					bprintf("\x1b[s\x1b[%dC",80-i);         /* save pos  */
 					z=curatr;								/* and got to EOL */
 					attr(z|BLINK|HIGH);
-					outchar('°');
+					outchar('\xfe');
 					attr(z);
 					bputs("\x1b[u");   /* restore pos */
 				}
@@ -1725,9 +1725,14 @@ int nopen(const char *str, int access)
 /* global variables.														*/
 /* Initializes starttime variable with current time.						*/
 /****************************************************************************/
+/* Suppress snprintf truncation warnings in initdata() - snprintf is used
+   intentionally to safely truncate paths that exceed buffer size */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+
 void initdata(void)
 {
-	char	str[256],tmp[256];
+	char	str[280],tmp[280];
 	char*	p;
 	int		i;
 	FILE*	stream;
@@ -1769,7 +1774,7 @@ void initdata(void)
 	if(node_dir[0]==0 && (p=getenv("SBBSNODE"))!=NULL)
 		sprintf(node_dir,"%.*s",(int)sizeof(node_dir)-1,p);
 
-	sprintf(str,"%sXTRN.DAT",node_dir);
+	snprintf(str,sizeof(str),"%sXTRN.DAT",node_dir);
 	if((stream=fopen(str,"rt"))==NULL) {
 		strlwr(str);
 		if((stream=fopen(str,"rt"))==NULL) {
@@ -2012,7 +2017,7 @@ void initdata(void)
 
 	atexit(flushoutput);
 
-	sprintf(str,"%sINTRSBBS.DAT",node_dir);     /* Shrank to run! */
+	snprintf(str,sizeof(str),"%sINTRSBBS.DAT",node_dir);     /* Shrank to run! */
 	if(fexist(str)) {
 		if((stream=fopen(str,"rt"))==NULL) {
 			printf("Can't open %s\n",str);
@@ -2036,13 +2041,13 @@ void initdata(void)
 	sysop_level=90; 				/* Minimum level to be considered sysop */
 	timeleft_warn=0;				/* Running out of time warning */
 
-	sprintf(str,"%s%s",ctrl_dir,"node.dab");
+	snprintf(str,sizeof(str),"%s%s",ctrl_dir,"node.dab");
 	if((nodefile=sopen(str,O_BINARY|O_RDWR,SH_DENYNO,S_IREAD|S_IWRITE))==-1) {
 		printf("\r\n\7Error opening %s\r\n",str);
 		exit(1);
 	}
 
-	sprintf(str,"%suser/name.dat",data_dir);
+	snprintf(str,sizeof(str),"%suser/name.dat",data_dir);
 	if((i=nopen(str,O_RDONLY))==-1) {
 		printf("\r\n\7Error opening %s\r\n",str);
 		exit(1);
@@ -2072,13 +2077,15 @@ void initdata(void)
 	attr(LIGHTGRAY);				/* initialize color and curatr to plain */
 }
 
+#pragma GCC diagnostic pop
+
 /****************************************************************************/
 /* Automatic RIP & WIP terminal detection function. Sets RIP and WIP bits	*/
 /* in user_misc variable. Must be called AFTER initdat(), not before.		*/
 /****************************************************************************/
 void get_term(void)
 {
-	char str[128],ch;
+	char str[280],ch;
 	int i;
 
 	bputs("\r\x1b[!_\x1b[0t_\r        \r");
@@ -2175,7 +2182,7 @@ void printfile(const char *str)
 char *xsdk_username(uint usernumber)
 {
 	static	char name[26];
-	char	str[128];
+	char	str[280];
 	int 	i,file;
 
 	strcpy(name,"UNKNOWN USER");
@@ -2209,7 +2216,7 @@ char *xsdk_username(uint usernumber)
 /****************************************************************************/
 uint usernumber(const char *username)
 {
-	char str[128];
+	char str[280];
 	int i,file;
 	FILE *stream;
 
@@ -2546,14 +2553,14 @@ void xsdk_printnodedat(int number, node_t node)
 /****************************************************************************/
 void xsdk_getsmsg(int usernumber)
 {
-	char str[256], *buf;
+	char str[280], *buf;
 	int file;
 	long length;
 	node_t node;
 
 	if(!data_dir[0])
 		return;
-	sprintf(str,"%smsgs/%4.4u.msg",data_dir,usernumber);
+	snprintf(str,sizeof(str),"%smsgs/%4.4u.msg",data_dir,usernumber);
 	if(flength(str)<1L) {
 		return; }
 	if((file=nopen(str,O_RDWR))==-1) {
@@ -2588,13 +2595,13 @@ void xsdk_getsmsg(int usernumber)
 /****************************************************************************/
 void xsdk_putsmsg(int usernumber, const char *strin)
 {
-	char str[256];
+	char str[280];
 	int file,i;
     node_t node;
 
 	if(!data_dir[0])
 		return;
-	sprintf(str,"%smsgs/%4.4u.msg",data_dir,usernumber);
+	snprintf(str,sizeof(str),"%smsgs/%4.4u.msg",data_dir,usernumber);
 	if((file=nopen(str,O_WRONLY|O_CREAT|O_APPEND))==-1) {
 		bprintf("\7Error opening/creating %s for creat/append access\r\n",str);
 		return; }
@@ -2619,7 +2626,7 @@ void xsdk_putsmsg(int usernumber, const char *strin)
 /****************************************************************************/
 void xsdk_getnmsg(void)
 {
-	char str[256], *buf;
+	char str[280], *buf;
 	int file;
 	long length;
 	node_t thisnode;
@@ -2630,7 +2637,7 @@ void xsdk_getnmsg(void)
 	thisnode.misc&=~NODE_NMSG;			/* clear the NMSG flag */
 	xsdk_putnodedat(node_num,thisnode);
 
-	sprintf(str,"%smsgs/n%3.3u.msg",data_dir,node_num);
+	snprintf(str,sizeof(str),"%smsgs/n%3.3u.msg",data_dir,node_num);
 	if(flength(str)<1L) {
 		return; }
 	if((file=nopen(str,O_RDWR))==-1) {
@@ -2659,13 +2666,13 @@ void xsdk_getnmsg(void)
 /****************************************************************************/
 void xsdk_putnmsg(int num, const char *strin)
 {
-	char str[256];
+	char str[280];
 	int file,i;
     node_t node;
 
 	if(!data_dir[0])
 		return;
-	sprintf(str,"%smsgs/n%3.3u.msg",data_dir,num);
+	snprintf(str,sizeof(str),"%smsgs/n%3.3u.msg",data_dir,num);
 	if((file=nopen(str,O_WRONLY|O_CREAT|O_APPEND))==-1) {
 		printf("Couldn't open %s for append\r\n",str);
 		return; }

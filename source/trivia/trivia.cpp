@@ -687,7 +687,7 @@ void TriviaServer::displayScores(GameNode* pl)
 {
    PlayerRecord* myRecords = PlayerRecord::getRankedRecords();
 
-   char szText[80];
+   char szText[100];
    bool bOneColumn = false;
    pl->newline();
    pl->underline((char*)"THIS MONTH'S HIGH SCORES", (char*)"\xc4", LCYAN, BLUE, true);

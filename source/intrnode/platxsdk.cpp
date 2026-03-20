@@ -21,7 +21,7 @@ void beforeExit();
 short nNoLocalWindow = 1;
 
 #ifndef _WIN32
-extern char node_dir[128]; // Declared in XSDKVARS.C
+extern char node_dir[256]; // Declared in XSDKVARS.C
 extern void initdata(void);
 extern uint sec_warn, sec_timeout;
 #endif

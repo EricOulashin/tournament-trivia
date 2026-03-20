@@ -54,6 +54,7 @@
 /* XSDK-specific */
 #include "xsdkdefs.h"	/* MAX_PATH */
 #include "xsdkwrap.h"	/* Verify prototypes */
+#include <ctype.h>	/* toupper, tolower */
 
 #ifdef _WIN32
 #define stat(f,s)	_stat(f,s)

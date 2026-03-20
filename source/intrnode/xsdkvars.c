@@ -48,12 +48,12 @@ GLOBAL char 	sys_name[41],		/* System name */
 				sys_op[41], 		/* System operator name */
 				sys_guru[41];		/* System guru name */
 GLOBAL ushort	timeleft;			/* Time left in seconds */
-GLOBAL char 	ctrl_dir[128],		/* SBBS dirs */
-				data_dir[128],
-				node_dir[128],
-				exec_dir[128],
-				text_dir[128],
-				temp_dir[128];
+GLOBAL char 	ctrl_dir[256],		/* SBBS dirs */
+				data_dir[256],
+				node_dir[256],
+				exec_dir[256],
+				text_dir[256],
+				temp_dir[256];
 GLOBAL uint 	user_number;		/* User's number */
 GLOBAL char 	user_name[45],		/* User's name/alias */
 				user_misc,			/* User's misc settings */

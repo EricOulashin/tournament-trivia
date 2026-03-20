@@ -39,7 +39,7 @@ GameThread* EnterGameThread::factory(GameNode* aNode, GameServer* aServer)
 
 void EnterGameThread::run()
 {
-   char szText[120], szFor[20], szOwner[80];
+   char szText[200], szFor[20], szOwner[80];
    
    pl->clearScreen();
    sprintf(szText, "TOURNAMENT TRIVIA v%s", DOOR_VERSION);
