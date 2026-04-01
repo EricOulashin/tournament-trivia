@@ -9,14 +9,18 @@
 #define MQ_MAX_MSG_SIZE 244
 
 #else
-// Linux / non-Windows
+// Linux / macOS / non-Windows
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#ifdef __APPLE__
+#include "mqueue_compat.h"
+#else
 #include <mqueue.h>
+#endif
 
 #include <mutex>
 #include <ctype.h>

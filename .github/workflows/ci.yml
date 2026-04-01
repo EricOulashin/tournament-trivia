@@ -11,6 +11,7 @@ jobs:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
 
@@ -25,6 +26,7 @@ jobs:
         with:
           repository: SynchronetBBS/sbbs
           path: sbbs
+          fetch-depth: 1
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -66,14 +68,15 @@ jobs:
         with:
           repository: SynchronetBBS/sbbs
           path: sbbs
+          fetch-depth: 1
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
       - name: Build Release (x64)
         env:
-          ODOORS_SRC: ${{ github.workspace }}\sbbs\src\odoors
-        run: msbuild "vs\Tournament Trivia.sln" /p:Configuration=Release /p:Platform=x64 /m
+          ODOORS_SRC: ${{ github.workspace }}/sbbs/src/odoors
+        run: msbuild "vs/Tournament Trivia.sln" /p:Configuration=Release /p:Platform=x64 /m
         working-directory: tournament-trivia
 
       - name: Build Windows release archive
@@ -85,5 +88,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TournamentTrivia-Windows-release
-          path: tournament-trivia\TournamentTrivia_*_Windows.zip
+          path: tournament-trivia/TournamentTrivia_*_Windows.zip
           retention-days: 90
