@@ -33,14 +33,15 @@ copy /y vs\bin\Release\trivsrv.exe "%releaseDirName%\" >nul
 copy /y vs\bin\Release\trivsync.exe "%releaseDirName%\" >nul
 copy /y vs\bin\Release\triv32.exe "%releaseDirName%\" >nul
 
+REM Generate FILE_ID.DIZ from template with version, date, and centered OS line
+powershell -Command "$today = Get-Date -Format 'yyyy-MM-dd'; $osText = '%OSName% Version'; $lineWidth = 40; $pad = ' ' * [Math]::Floor(($lineWidth - $osText.Length) / 2); $centeredOs = $pad + $osText; (Get-Content 'FILE_ID_Template.DIZ') -replace '<VERSION>','%version%' -replace '<DATE>',$today -replace '<OS_LINE>',$centeredOs | Set-Content 'FILE_ID.DIZ'"
+
 REM Create zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
 if /i "%~1"=="--no-zip" (
-    copy /y release\FILE_ID.DIZ "%releaseDirName%\" >nul
     echo Release directory prepared: %releaseDirName%
 ) else (
     set zipName=TournamentTrivia_%versionWithoutDot%_%OSName%.zip
     if exist "%zipName%" del "%zipName%"
-    copy /y release\FILE_ID.DIZ . >nul
     tar -a -cf "%zipName%" FILE_ID.DIZ "%releaseDirName%"
     rmdir /s /q "%releaseDirName%"
     del FILE_ID.DIZ

@@ -27,14 +27,21 @@ cp source/trivia/triv32 "$releaseDirName/"
 cp source/trivia/trivconfig "$releaseDirName/"
 cp source/trivia/regtriv "$releaseDirName/"
 
+# Generate FILE_ID.DIZ from template with version, date, and centered OS line
+osText="${OSName} Version"
+lineWidth=40
+padLen=$(( (lineWidth - ${#osText}) / 2 ))
+centeredOsLine="$(printf '%*s' "$padLen" '')${osText}"
+sed "s/<VERSION>/$version/g" FILE_ID_Template.DIZ \
+    | sed "s/<DATE>/$(date '+%Y-%m-%d')/g" \
+    | sed "s/<OS_LINE>/$centeredOsLine/g" > FILE_ID.DIZ
+
 # Create the zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
 if [ "$1" = "--no-zip" ]; then
-    cp release/FILE_ID.DIZ "$releaseDirName/"
     echo "Release directory prepared: $releaseDirName"
 else
     zipName="TournamentTrivia_${versionWithoutDot}_${OSName}.zip"
     rm -f "$zipName"
-    cp release/FILE_ID.DIZ .
     zip -r -9 "$zipName" FILE_ID.DIZ "$releaseDirName"
     rm -rf "$releaseDirName"
     rm FILE_ID.DIZ
