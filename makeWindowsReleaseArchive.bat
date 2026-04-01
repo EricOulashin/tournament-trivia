@@ -19,10 +19,12 @@ if exist "%releaseDirName%" rmdir /s /q "%releaseDirName%"
 REM Create release directory
 mkdir "%releaseDirName%"
 
-REM Copy release files, excluding .exe files
+REM Copy release files, excluding .exe files and FILE_ID.DIZ
 for %%f in (release\*) do (
     if /i not "%%~xf"==".exe" (
-        copy /y "%%f" "%releaseDirName%\" >nul
+        if /i not "%%~nxf"=="FILE_ID.DIZ" (
+            copy /y "%%f" "%releaseDirName%\" >nul
+        )
     )
 )
 
@@ -33,12 +35,15 @@ copy /y vs\bin\Release\triv32.exe "%releaseDirName%\" >nul
 
 REM Create zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
 if /i "%~1"=="--no-zip" (
+    copy /y release\FILE_ID.DIZ "%releaseDirName%\" >nul
     echo Release directory prepared: %releaseDirName%
 ) else (
     set zipName=TournamentTrivia_%versionWithoutDot%_%OSName%.zip
     if exist "%zipName%" del "%zipName%"
-    tar -a -cf "%zipName%" "%releaseDirName%"
+    copy /y release\FILE_ID.DIZ . >nul
+    tar -a -cf "%zipName%" FILE_ID.DIZ "%releaseDirName%"
     rmdir /s /q "%releaseDirName%"
+    del FILE_ID.DIZ
     echo.
     echo Release archive created: %zipName%
 )

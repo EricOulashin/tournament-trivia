@@ -11,10 +11,11 @@ releaseDirName="TournamentTrivia_${OSName}"
 rm -rf "$releaseDirName"
 mkdir -p "$releaseDirName"
 
-# Copy release files, excluding Windows binaries (.exe and .dll)
+# Copy release files, excluding Windows binaries (.exe and .dll) and FILE_ID.DIZ
 for f in release/*; do
     case "$f" in
         *.exe|*.dll) continue ;;
+        */FILE_ID.DIZ) continue ;;
         *) cp "$f" "$releaseDirName/" ;;
     esac
 done
@@ -28,11 +29,14 @@ cp source/trivia/regtriv "$releaseDirName/"
 
 # Create the zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
 if [ "$1" = "--no-zip" ]; then
+    cp release/FILE_ID.DIZ "$releaseDirName/"
     echo "Release directory prepared: $releaseDirName"
 else
     zipName="TournamentTrivia_${versionWithoutDot}_${OSName}.zip"
     rm -f "$zipName"
-    zip -r -9 "$zipName" "$releaseDirName"
+    cp release/FILE_ID.DIZ .
+    zip -r -9 "$zipName" FILE_ID.DIZ "$releaseDirName"
     rm -rf "$releaseDirName"
+    rm FILE_ID.DIZ
     echo "Release archive created: $zipName"
 fi
