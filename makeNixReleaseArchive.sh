@@ -3,7 +3,7 @@
 # makeNixReleaseArchive.sh - Create a Linux or macOS release ZIP archive
 
 OSName=$(uname -s)
-version=$(grep DOOR_VERSION source/trivia/doorset.h | sed -E 's/^.*DOOR_VERSION[[:space:]]+"(.*)"/\1/g')
+version=$(grep DOOR_VERSION source/trivia/doorset.h | sed -E 's/^.*DOOR_VERSION[[:space:]]+"(.*)"/\1/g' | tr -d '\r')
 versionWithoutDot=$(echo "$version" | sed 's/\.//g')
 releaseDirName="TournamentTrivia_${OSName}"
 

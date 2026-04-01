@@ -24,7 +24,7 @@
 
 	#include <windows.h>	/* DWORD */
 
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__APPLE__)
 
 	#include <glob.h>       /* glob() wildcard matching */
 	#include <string.h>     /* strlen() */
@@ -63,7 +63,7 @@
 #define STAT		struct stat
 #endif
 
-#if defined(__unix__)
+#if defined(__unix__) || defined(__APPLE__)
 /****************************************************************************/
 /* Wrapper for Win32 create/begin thread function							*/
 /* Uses POSIX threads														*/
@@ -345,7 +345,7 @@ BOOL fexist(char *filespec)
 
 	return(TRUE);
 
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__APPLE__)
 
 	/* portion by cmartin */
 
@@ -392,7 +392,7 @@ BOOL fexist(char *filespec)
 
 #endif
 
-#if defined(__unix__)
+#if defined(__unix__) || defined(__APPLE__)
 
 /****************************************************************************/
 /* Returns the length of the file in 'fd'									*/

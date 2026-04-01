@@ -34,7 +34,7 @@
 #define _WINSOCKAPI_	
 #endif
 
-#elif defined __unix__	/* Unix-variant */
+#elif defined(__unix__) || defined(__APPLE__)	/* Unix-variant */
 
 #include <sys/types.h>	/* u_intXX_t */
 

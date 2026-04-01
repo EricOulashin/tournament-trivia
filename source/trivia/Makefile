@@ -20,6 +20,8 @@ ifeq ($(UNAME_S),Linux)
 RT_LIB := -lrt
 else
 RT_LIB :=
+# Suppress macOS SDK sprintf deprecation warnings
+COMMON_CFLAGS += -Wno-deprecated-declarations
 endif
 
 # XSDK/console flags (for trivsync and trivsrv)

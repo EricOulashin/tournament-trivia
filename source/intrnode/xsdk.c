@@ -604,7 +604,7 @@ char inkey(long mode)
 			keybufbot=0; }
 	else if(!(xsdk_mode&XSDK_MODE_NOCONSOLE) && stdin_kbhit()) {
 		i=stdin_getch();
-#ifdef __unix__
+#if defined(__unix__) || defined(__APPLE__)
 		if(i==LF) i=CR;	/* Enter key returns Ctrl-J on Unix! (ohmygod) */
 #endif
 		if(i==0 || i==0xE0) {			/* Local Alt or Function key hit */
@@ -1751,7 +1751,7 @@ void initdata(void)
 #ifdef __SC__
     setvbuf(stdout,NULL,_IONBF,0);
 	con_fp=stdout;
-#elif defined (__unix__)
+#elif defined(__unix__) || defined(__APPLE__)
 	setvbuf(stdout,NULL,_IONBF,0);
 	setvbuf(stderr,NULL,_IONBF,0);
 	con_fp=stdout;
@@ -2060,7 +2060,7 @@ void initdata(void)
 	else				/* Version 1a */
 		name_len=30;
 
-#ifdef __unix__
+#if defined(__unix__) || defined(__APPLE__)
 	_termios_setup();
 #endif
 

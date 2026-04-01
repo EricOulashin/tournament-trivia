@@ -54,7 +54,7 @@
 
 #endif
 
-#if defined(__unix__)
+#if defined(__unix__) || defined(__APPLE__)
 	#define BACKSLASH	'/'
 #else /* MS-DOS based OS */
 	#define BACKSLASH	'\\'
@@ -77,13 +77,15 @@
 	#define PLATFORM_DESC	"QNX"
 #elif defined(BSD)
 	#define PLATFORM_DESC	"BSD"
+#elif defined(__APPLE__)
+	#define PLATFORM_DESC	"macOS"
 #elif defined(__unix__)
 	#define PLATFORM_DESC	"Unix"
 #else
 	#error "Need to describe target platform"
 #endif
 
-#if defined(__unix__)
+#if defined(__unix__) || defined(__APPLE__)
 
 	int kbhit(void);
 	int getch(void);
@@ -111,7 +113,7 @@
 	#define O_DENYNONE			SH_DENYNO
 	#endif
 
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__APPLE__)
 
 	#include <fcntl.h>
 
@@ -130,7 +132,7 @@
 
 #endif
 
-#ifdef __unix__
+#if defined(__unix__) || defined(__APPLE__)
 
 	#include <pthread.h>	/* POSIX threads and mutexes */
 	#include <semaphore.h>	/* POSIX semaphores */
@@ -170,7 +172,7 @@
 
 	#define mswait(x)			DosSleep(x)
 
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__APPLE__)
 
 	#define mswait(x)			usleep(x*1000)
 	#define _mkdir(dir)			mkdir(dir,0777)

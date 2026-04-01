@@ -25,7 +25,7 @@
 /*********************************************/
 /* Standard Borland/Turbo C/C++ Header Files */
 /*********************************************/
-#ifdef __unix__
+#if defined(__unix__) || defined(__APPLE__)
  #ifdef __solaris__
 	#include <sys/filio.h>	/* FIONREAD on SunOS */
  #endif
@@ -48,7 +48,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#ifndef __unix__
+#if !defined(__unix__) && !defined(__APPLE__)
 	#include <malloc.h>
 #endif
 #include <sys/stat.h>
