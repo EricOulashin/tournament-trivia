@@ -6,13 +6,21 @@ CC	?= gcc
 CXX	?= g++
 SRC_ROOT	:=	../../..
 
-# Common flags (shared by all targets)
-# TODO: Update ODOORS_SRC to point to the directory where the OpenDoors SDK is located
-# (i.e., for Synchronet, with the Synchronet Git repository cloned, ODOORS_SRC would be
-# something like /sbbs/repo/src/odoors)
-ODOORS_SRC	:= /sbbs/repo/src/odoors
+# OpenDoors SDK location (in the sister project sbbs, checked out alongside this repo)
+ODOORS_SRC	:= $(SRC_ROOT)/sbbs/src/odoors
+
+# Detect OS for platform-specific flags
+UNAME_S := $(shell uname -s)
+
 COMMON_CFLAGS := $(CIOLIB-MT_CFLAGS) $(XPDEV-MT_CFLAGS) -DLINUX
 LDFLAGS += $(CIOLIB-MT_LDFLAGS) $(XPDEV-MT_LDFLAGS)
+
+# -lrt is available on Linux but not on macOS
+ifeq ($(UNAME_S),Linux)
+RT_LIB := -lrt
+else
+RT_LIB :=
+endif
 
 # XSDK/console flags (for trivsync and trivsrv)
 CFLAGS += $(COMMON_CFLAGS) -D__CONSOLE__
@@ -27,13 +35,13 @@ TRIVIA_OBJ_LIST = commands.o player.o reginfo.o threads.o
 all: trivsrv trivsync triv32 trivconfig regtriv
 
 trivsync: ../intrnode/door.cpp platxsdk.o xsdk.o xsdkvars.o xsdkwrap.o intrnode.o linuxPlatformDefs.o gamesrv.o
-	$(CXX) $(CPPFLAGS) $(LDFLAGS) -L${ODOORS_SRC}/libs-`uname` -lncurses -lrt -lpthread -o trivsync ../intrnode/door.cpp platxsdk.o xsdk.o xsdkvars.o xsdkwrap.o intrnode.o linuxPlatformDefs.o gamesrv.o
+	$(CXX) $(CPPFLAGS) $(LDFLAGS) -L${ODOORS_SRC}/libs-`uname` -lncurses $(RT_LIB) -lpthread -o trivsync ../intrnode/door.cpp platxsdk.o xsdk.o xsdkvars.o xsdkwrap.o intrnode.o linuxPlatformDefs.o gamesrv.o
 
 trivsrv: trivia.cpp ../intrnode/gamesrv.h commands.o player.o reginfo.o threads.o gamesrv.o linuxPlatformDefs.o intrnode.o
-	$(CXX) $(CPPFLAGS) $(LDFLAGS) -lrt -lpthread -o trivsrv trivia.cpp commands.o player.o reginfo.o threads.o gamesrv.o linuxPlatformDefs.o intrnode.o
+	$(CXX) $(CPPFLAGS) $(LDFLAGS) $(RT_LIB) -lpthread -o trivsrv trivia.cpp commands.o player.o reginfo.o threads.o gamesrv.o linuxPlatformDefs.o intrnode.o
 
 triv32: door_od.o platod.o intrnode.o linuxPlatformDefs.o gamesrv.o
-	$(CXX) $(OD_CPPFLAGS) $(LDFLAGS) -o triv32 door_od.o platod.o intrnode.o linuxPlatformDefs.o gamesrv.o -L${ODOORS_SRC}/libs-`uname` -lODoors -lrt -lpthread
+	$(CXX) $(OD_CPPFLAGS) $(LDFLAGS) -o triv32 door_od.o platod.o intrnode.o linuxPlatformDefs.o gamesrv.o -L${ODOORS_SRC}/libs-`uname` -lODoors $(RT_LIB) -lpthread
 
 # OpenDoors-specific object files (compiled without __CONSOLE__)
 door_od.o: ../intrnode/door.cpp ../intrnode/door.h ../intrnode/intrnode.h ../intrnode/opendoor.h

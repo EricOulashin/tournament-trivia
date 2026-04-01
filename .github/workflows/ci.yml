@@ -1,0 +1,89 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-unix:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Check out tournament-trivia
+        uses: actions/checkout@v4
+        with:
+          path: tournament-trivia
+
+      - name: Check out sbbs (sister project)
+        uses: actions/checkout@v4
+        with:
+          repository: SynchronetBBS/sbbs
+          path: sbbs
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make libncurses-dev zip
+
+      - name: Build OpenDoors library
+        run: make static-lib
+        working-directory: sbbs/src/odoors
+
+      - name: Build Tournament Trivia
+        run: make
+        working-directory: tournament-trivia/source/trivia
+
+      - name: Build release archive
+        run: ./makeNixReleaseArchive.sh
+        working-directory: tournament-trivia
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TournamentTrivia-${{ runner.os }}-release
+          path: tournament-trivia/TournamentTrivia_*.zip
+          retention-days: 90
+
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out tournament-trivia
+        uses: actions/checkout@v4
+        with:
+          path: tournament-trivia
+
+      - name: Check out sbbs (sister project)
+        uses: actions/checkout@v4
+        with:
+          repository: SynchronetBBS/sbbs
+          path: sbbs
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Release (x64)
+        env:
+          ODOORS_SRC: ${{ github.workspace }}\sbbs\src\odoors
+        run: msbuild "vs\Tournament Trivia.sln" /p:Configuration=Release /p:Platform=x64 /m
+        working-directory: tournament-trivia
+
+      - name: Build Windows release archive
+        shell: cmd
+        run: makeWindowsReleaseArchive.bat
+        working-directory: tournament-trivia
+
+      - name: Upload Windows release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TournamentTrivia-Windows-release
+          path: tournament-trivia\TournamentTrivia_*_Windows.zip
+          retention-days: 90
