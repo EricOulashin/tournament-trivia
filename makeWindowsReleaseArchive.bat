@@ -31,13 +31,14 @@ copy /y vs\bin\Release\trivsrv.exe "%releaseDirName%\" >nul
 copy /y vs\bin\Release\trivsync.exe "%releaseDirName%\" >nul
 copy /y vs\bin\Release\triv32.exe "%releaseDirName%\" >nul
 
-REM Create zip file using tar (available on Windows 10+)
-set zipName=TournamentTrivia_%versionWithoutDot%_%OSName%.zip
-if exist "%zipName%" del "%zipName%"
-tar -a -cf "%zipName%" "%releaseDirName%"
-
-REM Clean up
-rmdir /s /q "%releaseDirName%"
-
-echo.
-echo Release archive created: %zipName%
+REM Create zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
+if /i "%~1"=="--no-zip" (
+    echo Release directory prepared: %releaseDirName%
+) else (
+    set zipName=TournamentTrivia_%versionWithoutDot%_%OSName%.zip
+    if exist "%zipName%" del "%zipName%"
+    tar -a -cf "%zipName%" "%releaseDirName%"
+    rmdir /s /q "%releaseDirName%"
+    echo.
+    echo Release archive created: %zipName%
+)

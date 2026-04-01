@@ -42,15 +42,15 @@ jobs:
         run: make
         working-directory: tournament-trivia/source/trivia
 
-      - name: Build release archive
-        run: ./makeNixReleaseArchive.sh
+      - name: Prepare release directory
+        run: ./makeNixReleaseArchive.sh --no-zip
         working-directory: tournament-trivia
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: TournamentTrivia-${{ runner.os }}-release
-          path: tournament-trivia/TournamentTrivia_*.zip
+          path: tournament-trivia/TournamentTrivia_*/
           retention-days: 90
 
   build-windows:
@@ -79,14 +79,14 @@ jobs:
         run: msbuild "vs/Tournament Trivia.sln" /p:Configuration=Release /p:Platform=x64 /m
         working-directory: tournament-trivia
 
-      - name: Build Windows release archive
+      - name: Prepare release directory
         shell: cmd
-        run: makeWindowsReleaseArchive.bat
+        run: makeWindowsReleaseArchive.bat --no-zip
         working-directory: tournament-trivia
 
       - name: Upload Windows release artifact
         uses: actions/upload-artifact@v4
         with:
           name: TournamentTrivia-Windows-release
-          path: tournament-trivia/TournamentTrivia_*_Windows.zip
+          path: tournament-trivia/TournamentTrivia_Windows/
           retention-days: 90

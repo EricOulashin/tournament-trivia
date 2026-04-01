@@ -26,12 +26,13 @@ cp source/trivia/triv32 "$releaseDirName/"
 cp source/trivia/trivconfig "$releaseDirName/"
 cp source/trivia/regtriv "$releaseDirName/"
 
-# Create the zip file
-zipName="TournamentTrivia_${versionWithoutDot}_${OSName}.zip"
-rm -f "$zipName"
-zip -r -9 "$zipName" "$releaseDirName"
-
-# Clean up
-rm -rf "$releaseDirName"
-
-echo "Release archive created: $zipName"
+# Create the zip file (unless --no-zip is passed, e.g. for CI artifact uploads)
+if [ "$1" = "--no-zip" ]; then
+    echo "Release directory prepared: $releaseDirName"
+else
+    zipName="TournamentTrivia_${versionWithoutDot}_${OSName}.zip"
+    rm -f "$zipName"
+    zip -r -9 "$zipName" "$releaseDirName"
+    rm -rf "$releaseDirName"
+    echo "Release archive created: $zipName"
+fi
