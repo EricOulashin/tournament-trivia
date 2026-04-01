@@ -11,10 +11,10 @@ releaseDirName="TournamentTrivia_${OSName}"
 rm -rf "$releaseDirName"
 mkdir -p "$releaseDirName"
 
-# Copy release files, excluding .exe files
+# Copy release files, excluding Windows binaries (.exe and .dll)
 for f in release/*; do
     case "$f" in
-        *.exe) continue ;;
+        *.exe|*.dll) continue ;;
         *) cp "$f" "$releaseDirName/" ;;
     esac
 done
